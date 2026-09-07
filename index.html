@@ -234,7 +234,7 @@ const GENDERS = ["Male", "Female", "Non-binary"];
 // PATCH_NOTES_TEXT is the full patch-notes.md content, embedded as a read-only
 // string so it can be displayed directly in-app without a separate file fetch.
 // Keep this in sync with the real patch-notes.md file shipped alongside each build.
-const APP_VERSION = "v32 (TEMP DEBUG)";
+const APP_VERSION = "v33 (TEMP DEBUG)";
 const PATCH_NOTES_TEXT = `# The System — Patch Notes
 
 Covers all builds completed in this chat, starting from the uploaded baseline
@@ -242,6 +242,37 @@ Covers all builds completed in this chat, starting from the uploaded baseline
 corresponds to the JSX artifact number shipped at that point; \`the-system-app.html\`
 was kept in lockstep from v20 onward (v19's Quick Start was JSX-only for one turn
 before being ported back into the HTML in v20).
+
+---
+
+## v33 (TEMP DEBUG carried over — see note below)
+
+**NOTE:** the notification-toggle \`alert()\` debug instrumentation from v29 is
+still live in the code (confirmed still unresolved — pushed off intentionally
+for now), so the version string still carries the TEMP DEBUG flag. Everything
+else below is a normal feature batch.
+
+**URGENT_POOL / EMERGENCY_POOL — real content pools (resolves the v30 content
+gap)**
+- Replaced the 18-entry \`EMERGENCY_POOL\` placeholder and the original stub
+  \`URGENT_POOL\` (which had hardcoded "spouse/son" Relational phrasing) with
+  the real authored pools.
+- Relational entries genericized across both pools — no hardcoded family
+  roles, per the spec's future-multiplayer note.
+- **Not a perfect 9-per-domain (3 mild/3 moderate/3 severe) grid** — flagging
+  per the source doc's own instruction rather than silently shipping a
+  partial pool as if it were complete:
+  - \`EMERGENCY_POOL\` totals 50 entries: Financial/Physical/Relational are
+    full 9 (3/3/3) each. Mental is short 2 (missing 1 moderate + 1 severe).
+    Social is short 1 (missing 1 severe). Faith is short 1 (missing 1
+    moderate).
+  - \`URGENT_POOL\` totals 51 entries: same full domains as above. Mental is
+    short 2 the same way as Emergency. Social is short 1 (missing 1
+    moderate). Faith is a full 9 (3/3/3) here.
+  - Both pools are fully wired in and functional as-is (every domain has at
+    least one entry per severity) — the gap is depth/variety in a few
+    domains, not a functional break. Fill-in entries for the short domains
+    are a queued follow-up if a strict 3/3/3 everywhere is wanted.
 
 ---
 
@@ -3178,119 +3209,143 @@ function getNextMidnight(fromMs) {
   return d.getTime();
 }
 
-// Stub pools — 3 per domain, one per severity. Real build needs 8–10 per domain, curated.
+// URGENT_POOL / EMERGENCY_POOL — real content pools (replaces the original stub
+// and the 18-entry EMERGENCY_POOL placeholder). Relational entries genericized,
+// no hardcoded family roles, per spec. NOTE: not a perfect 9-per-domain (3/3/3)
+// grid as originally speced — EMERGENCY_POOL totals 50 (financial/physical/
+// relational are full 9; mental is short 2 — missing 1 moderate + 1 severe;
+// social is short 1 severe; faith is short 1 moderate). URGENT_POOL totals 51
+// (same full domains; mental short 2 the same way; social short 1 moderate;
+// faith is a full 9). Flagged for Don — fill the gaps in a follow-up if a
+// strict 3/3/3 everywhere is required; the pools are otherwise fully wired in.
 const URGENT_POOL = {
   financial: [
-    { severity: "mild", label: "Log every transaction from the last 48 hours" },
-    { severity: "mild", label: "Review your account balances and note anything unexpected" },
     { severity: "mild", label: "Cancel one subscription you don't use" },
-    { severity: "moderate", label: "Full account reconciliation across all cards" },
-    { severity: "moderate", label: "Build or update a one-month budget with real numbers" },
+    { severity: "mild", label: "Log this week's spending so far" },
+    { severity: "mild", label: "Compare this month vs. last month in one category" },
     { severity: "moderate", label: "Call one creditor or provider to negotiate or clarify a charge" },
-    { severity: "severe", label: "Full budget audit — identify what's been ignored and why" },
-    { severity: "severe", label: "Full net worth snapshot — assets, debts, and the gap between them" },
+    { severity: "moderate", label: "Move a fixed amount toward savings today" },
+    { severity: "moderate", label: "Shop around on two rates/providers you've been meaning to compare" },
     { severity: "severe", label: "Write out a real payoff plan for your largest debt, with dates" },
+    { severity: "severe", label: "Set a concrete savings target for the next 90 days" },
+    { severity: "severe", label: "Draft next quarter's budget before this one runs out" },
   ],
   physical: [
     { severity: "mild", label: "Extra conditioning session today, no excuses" },
-    { severity: "mild", label: "Log everything you eat today, no exceptions" },
     { severity: "mild", label: "20 min walk, no phone" },
-    { severity: "moderate", label: "Full workout + meal log for the day" },
+    { severity: "mild", label: "Add one extra set to today's workout" },
     { severity: "moderate", label: "Hit a specific rep or weight target you've been avoiding" },
     { severity: "moderate", label: "Prep meals for the next 3 days in one sitting" },
-    { severity: "severe", label: "Reset day: workout, meal prep, sleep tracked start to finish" },
-    { severity: "severe", label: "Full body measurement and photo check-in, no matter how it feels" },
-    { severity: "severe", label: "Book — or attend — the physical you've been putting off" },
+    { severity: "moderate", label: "Try one new exercise or class you haven't done" },
+    { severity: "severe", label: "Plan out every session for the week in advance" },
+    { severity: "severe", label: "Push a PR attempt on a stalled lift/distance" },
+    { severity: "severe", label: "Complete a benchmark workout and log it" },
   ],
   mental: [
     { severity: "mild", label: "45 min focused study or reading, phone in another room" },
     { severity: "mild", label: "Write down three things you learned this week" },
     { severity: "mild", label: "15 min planning session for tomorrow" },
-    { severity: "moderate", label: "Finish one chapter or module you've been putting off" },
     { severity: "moderate", label: "Teach or explain what you're learning to someone else" },
-    { severity: "moderate", label: "Block a full evening for a project you keep deferring" },
-    { severity: "severe", label: "Full skill audit — what have you actually been avoiding?" },
-    { severity: "severe", label: "Finish something you started and abandoned" },
+    { severity: "moderate", label: "Revisit notes from the last thing you actually finished" },
     { severity: "severe", label: "Honest review: is this the right skill to be building right now?" },
+    { severity: "severe", label: "Pick a lane — commit to one skill, drop the others" },
   ],
   relational: [
-    { severity: "mild", label: "Plan something specific with spouse/son this week" },
-    { severity: "mild", label: "Ask spouse/son one real question and actually listen" },
-    { severity: "mild", label: "Handle one small chore without being asked" },
-    { severity: "moderate", label: "Have the conversation you've been putting off at home" },
-    { severity: "moderate", label: "Plan and follow through on one-on-one time with your son" },
-    { severity: "moderate", label: "Address a recurring friction point directly, not passively" },
-    { severity: "severe", label: "Ask directly how they feel about your presence lately" },
-    { severity: "severe", label: "Apologize for something specific, and mean it" },
-    { severity: "severe", label: "Sit down together and name what's actually not working" },
+    { severity: "mild", label: "Plan something specific with someone close to you this week" },
+    { severity: "mild", label: "Ask one real question and actually listen" },
+    { severity: "mild", label: "Send a quick check-in text, just because" },
+    { severity: "moderate", label: "Plan and follow through on one-on-one time with someone close to you" },
+    { severity: "moderate", label: "Plan a small surprise, nothing big, just intentional" },
+    { severity: "moderate", label: "Ask what they need more of from you right now" },
+    { severity: "severe", label: "Sit down and talk through where things stand, no distractions" },
+    { severity: "severe", label: "Make a specific plan to close a gap you've noticed" },
+    { severity: "severe", label: "Ask them directly what's been missing lately" },
   ],
   social: [
-    { severity: "mild", label: "Reach out to one contact you haven't spoken to in weeks" },
     { severity: "mild", label: "Comment or engage meaningfully on something in your network" },
-    { severity: "mild", label: "Send one message you've been putting off" },
-    { severity: "moderate", label: "Follow up on a dropped professional thread" },
+    { severity: "mild", label: "Send one message just to check in, no agenda" },
+    { severity: "mild", label: "Actually respond to something in your network today" },
     { severity: "moderate", label: "Set up a call or meeting with someone in your network" },
     { severity: "moderate", label: "Introduce two people who should know each other" },
-    { severity: "severe", label: "Audit your network — who's gone quiet, and why haven't you noticed" },
-    { severity: "severe", label: "Reach out to someone you let a relationship lapse with, directly" },
     { severity: "severe", label: "Ask a mentor or peer for honest feedback on where you stand" },
+    { severity: "severe", label: "Host or organize something — take the connector role" },
+    { severity: "severe", label: "Reach out to someone senior and ask for their time" },
   ],
   faith: [
     { severity: "mild", label: "Extra chapter today, no rush" },
     { severity: "mild", label: "5 min of quiet reflection before bed" },
     { severity: "mild", label: "Write down one thing you're grateful for" },
-    { severity: "moderate", label: "Full hour: study, prayer, reflection combined" },
     { severity: "moderate", label: "Attend or engage with your faith community this week" },
+    { severity: "moderate", label: "Reach out to someone in your community you haven't talked to" },
+    { severity: "moderate", label: "Set a specific practice time each day this week, and keep it" },
+    { severity: "severe", label: "Honest conversation with a mentor/leader about where you are" },
+    { severity: "severe", label: "Revisit a drifted-from belief/practice and recommit" },
+    { severity: "severe", label: "Volunteer or serve somewhere connected to your practice this week" },
+  ],
+};
+
+const EMERGENCY_POOL = {
+  financial: [
+    { severity: "mild", label: "Log every transaction from the last 48 hours" },
+    { severity: "mild", label: "Review your account balances, note anything unexpected" },
+    { severity: "mild", label: "Check your bank app — face whatever's actually in there" },
+    { severity: "moderate", label: "Full account reconciliation across all cards" },
+    { severity: "moderate", label: "Build/update a one-month budget with real numbers" },
+    { severity: "moderate", label: "List every recurring charge and confirm you actually use each one" },
+    { severity: "severe", label: "Full budget audit — what's been ignored and why" },
+    { severity: "severe", label: "Full net worth snapshot" },
+    { severity: "severe", label: "Full arrears check — confirm nothing's gone unpaid" },
+  ],
+  physical: [
+    { severity: "mild", label: "Weigh in, no matter how long it's been" },
+    { severity: "mild", label: "Full stretch/mobility pass on whatever you've been ignoring" },
+    { severity: "mild", label: "Log everything you eat today" },
+    { severity: "moderate", label: "Full workout + meal log for the day" },
+    { severity: "moderate", label: "Full grocery restock — stop relying on whatever's in the fridge" },
+    { severity: "moderate", label: "Book the appointment you've been avoiding" },
+    { severity: "severe", label: "Reset day: workout, meal prep, sleep tracked start to finish" },
+    { severity: "severe", label: "Full body measurement and photo check-in, no matter how it feels" },
+    { severity: "severe", label: "Book — or attend — the physical you've been putting off" },
+  ],
+  mental: [
+    { severity: "mild", label: "Open the book/course you haven't touched in weeks, one page" },
+    { severity: "mild", label: "Write down exactly what's been stopping you" },
+    { severity: "mild", label: "10 minutes on the thing you keep avoiding, nothing else" },
+    { severity: "moderate", label: "Finish one chapter or module you've been putting off" },
+    { severity: "moderate", label: "Block a full evening for a project you keep deferring" },
+    { severity: "severe", label: "Full skill audit — what have you actually been avoiding?" },
+    { severity: "severe", label: "Finish something you started and abandoned" },
+  ],
+  relational: [
+    { severity: "mild", label: "Handle one small chore without being asked" },
+    { severity: "mild", label: "Phone away for one full meal or conversation" },
+    { severity: "mild", label: "Do something for someone close to you, unasked, no credit-taking" },
+    { severity: "moderate", label: "Have the conversation you've been putting off" },
+    { severity: "moderate", label: "Address a recurring friction point directly" },
+    { severity: "moderate", label: "Follow through on something you said you'd do and haven't" },
+    { severity: "severe", label: "Ask someone close to you directly how they feel about your presence lately" },
+    { severity: "severe", label: "Apologize for something specific, and mean it" },
+    { severity: "severe", label: "Sit down with someone close to you and name what's actually not working" },
+  ],
+  social: [
+    { severity: "mild", label: "Reach out to a contact you haven't spoken to in weeks" },
+    { severity: "mild", label: "Send one message you've been putting off" },
+    { severity: "mild", label: "Message someone directly — no liking, no commenting" },
+    { severity: "moderate", label: "Follow up on a dropped professional thread" },
+    { severity: "moderate", label: "Reconnect with someone from an old job/circle" },
+    { severity: "moderate", label: "Accept or make one invitation you'd normally skip" },
+    { severity: "severe", label: "Audit your network — who's gone quiet" },
+    { severity: "severe", label: "Reach out to someone you let a relationship lapse with, directly" },
+  ],
+  faith: [
+    { severity: "mild", label: "Read the passage/text you keep skipping" },
+    { severity: "mild", label: "Sit in silence 5 min, no agenda" },
+    { severity: "mild", label: "Say one honest prayer/intention out loud" },
+    { severity: "moderate", label: "Full hour: study, prayer, reflection combined" },
     { severity: "moderate", label: "Journal honestly about where you've been drifting" },
     { severity: "severe", label: "Honest gut-check: why has this been slipping" },
     { severity: "severe", label: "Full reset: confession, prayer, and a concrete next step" },
     { severity: "severe", label: "Have the hard conversation about faith you've been avoiding" },
-  ],
-};
-
-// ============================================================================
-// EMERGENCY_POOL — CONTENT GAP, PLACEHOLDER ONLY. The queued spec said "Full pool
-// text is in the source doc — paste directly into build chat as-is" (54 entries: 9
-// per domain, 3 mild/3 moderate/3 severe, Relational genericized for future
-// multiplayer with no hardcoded family roles), but that text wasn't actually
-// included in what I received. This placeholder has exactly 1 entry per
-// domain/severity (18 total, not 54) so the game is functionally testable and
-// doesn't crash — replace this entire block with the real pool before treating
-// Emergency Quest as done. Same gap applies to URGENT_POOL above, which the spec
-// also said needs replacing (54 genericized entries) — it currently still has its
-// original stub content, including hardcoded "spouse/son" phrasing the spec called
-// out as needing to change. Both need the real source text pasted in.
-// ============================================================================
-const EMERGENCY_POOL = {
-  financial: [
-    { severity: "mild", label: "PLACEHOLDER — mild financial emergency quest" },
-    { severity: "moderate", label: "PLACEHOLDER — moderate financial emergency quest" },
-    { severity: "severe", label: "PLACEHOLDER — severe financial emergency quest" },
-  ],
-  physical: [
-    { severity: "mild", label: "PLACEHOLDER — mild physical emergency quest" },
-    { severity: "moderate", label: "PLACEHOLDER — moderate physical emergency quest" },
-    { severity: "severe", label: "PLACEHOLDER — severe physical emergency quest" },
-  ],
-  mental: [
-    { severity: "mild", label: "PLACEHOLDER — mild mental emergency quest" },
-    { severity: "moderate", label: "PLACEHOLDER — moderate mental emergency quest" },
-    { severity: "severe", label: "PLACEHOLDER — severe mental emergency quest" },
-  ],
-  relational: [
-    { severity: "mild", label: "PLACEHOLDER — mild relational emergency quest" },
-    { severity: "moderate", label: "PLACEHOLDER — moderate relational emergency quest" },
-    { severity: "severe", label: "PLACEHOLDER — severe relational emergency quest" },
-  ],
-  social: [
-    { severity: "mild", label: "PLACEHOLDER — mild social emergency quest" },
-    { severity: "moderate", label: "PLACEHOLDER — moderate social emergency quest" },
-    { severity: "severe", label: "PLACEHOLDER — severe social emergency quest" },
-  ],
-  faith: [
-    { severity: "mild", label: "PLACEHOLDER — mild faith emergency quest" },
-    { severity: "moderate", label: "PLACEHOLDER — moderate faith emergency quest" },
-    { severity: "severe", label: "PLACEHOLDER — severe faith emergency quest" },
   ],
 };
 

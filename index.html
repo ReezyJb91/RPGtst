@@ -234,7 +234,7 @@ const GENDERS = ["Male", "Female", "Non-binary"];
 // PATCH_NOTES_TEXT is the full patch-notes.md content, embedded as a read-only
 // string so it can be displayed directly in-app without a separate file fetch.
 // Keep this in sync with the real patch-notes.md file shipped alongside each build.
-const APP_VERSION = "v28";
+const APP_VERSION = "v31 (TEMP DEBUG)";
 const PATCH_NOTES_TEXT = `# The System — Patch Notes
 
 Covers all builds completed in this chat, starting from the uploaded baseline
@@ -242,6 +242,187 @@ Covers all builds completed in this chat, starting from the uploaded baseline
 corresponds to the JSX artifact number shipped at that point; \`the-system-app.html\`
 was kept in lockstep from v20 onward (v19's Quick Start was JSX-only for one turn
 before being ported back into the HTML in v20).
+
+---
+
+## v31 (TEMP DEBUG carried over — see note below)
+
+**NOTE:** the notification-toggle \`alert()\` debug instrumentation from v29 is
+still live in the code (confirmed still unresolved — pushed off intentionally
+for now), so the version string still carries the TEMP DEBUG flag. Everything
+else below is a normal feature batch.
+
+**Daily Quest Completion Reward Update**
+- \`gainedXp\` in \`completeQuest()\`: 40 → 50.
+- Daily Quest completion now also grants a flat +50 Gold (new — previously
+  no gold on Daily Quest completion), granted alongside \`grantXp(gainedXp)\`.
+- Log line and Quest Complete popup both updated to show the Gold grant:
+  \`"[System]: +50 XP, +50 Gold."\`, popup lines \`["+50 XP", "+50 Gold", "+1
+  Mystery Box"]\`.
+- No changes to \`missCount\` reset, streak increment, \`endCycle({ awardPoints:
+  true })\`, or the \`dailyQuestsDoneTag\` OneSignal tag.
+
+**Domain-Specific Shop Keys + Universal Key Shop Addition**
+- The existing universal Dungeon Key (previously Mystery Box drop only, 8%
+  roll, unaffected) is now ALSO purchasable in the Shop: 150 Gold, capped 3
+  purchases/day, resetting on the same daily boundary as the Shop gear
+  reroll. Static listing — not part of the daily rotating gear stock.
+- 6 new domain-specific keys added, Shop-exclusive (no other source), 110
+  Gold each, same 3/day cap per key type: Icy Mountains (Physical), Deep-Sea
+  Caverns (Mental), Abandoned Stronghold (Financial), Dark Forest
+  (Relational), Monster Nest (Social), Desert Ruins (Faith). Each only
+  works as entry payment for its matching dungeon.
+- Spend priority is automatic, no player choice: entering a dungeon spends
+  that dungeon's matching domain-specific keys FIRST, falling back to the
+  universal pool only once domain-specific supply for that dungeon is
+  exhausted. Implemented in \`startDungeonRun\` (spend math) and
+  \`canAttemptDungeon\` (gate now checks domain-specific + universal combined).
+- Inventory now tracks 7 key counters total: \`inventory.dungeonKeys\`
+  (universal, unchanged field) + new \`inventory.domainKeys\` object (one
+  counter per domain). New \`keyPurchasesToday\` state (separate from
+  inventory) tracks the daily caps for all 7 lines, reset in the same
+  \`dailyQuestDeadline\` rollover effect that rerolls Shop gear stock.
+- Shop tab: new "DUNGEON KEYS" section below Gear, one static BUY line per
+  key type showing remaining purchases left today (\`X/3 left today\`).
+- Inventory panel (Gear tab) and Dungeon tab (Quests tab) both updated to
+  show domain key counts per location alongside the universal count.
+- Save/load merges old saves onto default \`domainKeys\`/\`keyPurchasesToday\`
+  shapes so a pre-v31 save doesn't produce NaN or undefined key counts.
+- Reference (unchanged, context only): Dungeon key cost per tier — Novice 1
+  / Adept 2 / Elite 3. Gold reward ranges per tier — Novice 50–150 / Adept
+  300–500 / Elite 1000–2000.
+
+**Mystery Box Gold Tier Values — Doubled**
+- \`openMysteryBox()\` gold payouts doubled — odds/roll thresholds themselves
+  unchanged: 10 Gold → 20 Gold (23% tier), 25 Gold → 50 Gold (18% tier), 60
+  Gold → 120 Gold (6% tier).
+- Surrounding comment-block odds documentation updated to read 20/50/120 for
+  consistency; percentages in the comments were already accurate and are
+  untouched.
+
+---
+
+## v30 (TEMP DEBUG carried over — see note below)
+
+**NOTE:** the notification-toggle \`alert()\` debug instrumentation from v29 is
+still live in the code (never confirmed resolved/removed), so the version
+string still carries the TEMP DEBUG flag. Everything else below is the real
+Emergency Quest System batch — treat this as a normal feature version except
+for that one lingering flag.
+
+**Emergency Quest System**
+- New second quest-trigger system alongside Urgent. **Trigger source swap:**
+  Urgent Quest now checks **stagnation only**; Emergency Quest checks
+  **neglect only** — the old combined neglect/stagnation tie-break logic is
+  gone, each system checks exactly one condition independently.
+- Emergency rolls FIRST every level-up check (30% chance, vs. Urgent's 40%).
+  If Emergency fires, Urgent does not roll that same cycle. If Emergency
+  doesn't fire, Urgent still gets its own independent roll.
+- 24-hour response window (vs. Urgent's 6h), capped at 1 new Emergency Quest
+  per cycle. Rewards: flat 150 XP (double Urgent's 75), +1 stat point, and
+  HV = the player's current level (\`grantHV(domain, level)\`) — genuinely
+  scales with progression, unlike every other quest type's fixed HV amount.
+  Same Encounter/Mystery Box completion bonuses as every other quest type.
+- On timeout, queues a flat Tier 2 penalty (reuses the existing escalation
+  duration math, tier fixed regardless of \`missCount\`) — does NOT increment
+  \`missCount\`, fully separate from Daily Quest's escalation system.
+- New modal: same shell as Urgent's (severity badge, domain, label,
+  countdown, RESOLVE/INVENTORY), but red (#E5484D) throughout, a stationary
+  siren/beacon icon, and a gentle flashing icon+label (opacity fade,
+  ease-in-out, NOT a hard strobe — photosensitivity consideration) with a
+  pulsing red glow behind the header. Suppresses the Urgent modal if both
+  happen to be active at once (Emergency takes priority).
+
+**Penalty Zone — Queue Architecture**
+- Replaced the old single \`activeChallenge\`/\`challengeTier\`/\`penaltyDeadline\`
+  slot with \`penaltyQueue: [{challenge, tier, durationSeconds, source}, ...]\`
+  (FIFO). \`penaltyActive\`/\`activeChallenge\`/\`challengeTier\` are now derived
+  from \`penaltyQueue[0]\` each render rather than stored separately.
+- New penalties (Daily Quest miss OR Emergency Quest failure) always append
+  to the end — never interrupt an in-progress penalty.
+- Clearing the front penalty immediately starts the next queued one's
+  countdown, back-to-back, with no gap. App stays fully locked until the
+  whole queue is empty.
+- Lock screen shows "Penalties remaining: N" (queued count, excluding the
+  active one), hidden when 0. Teleportation Stone now skips only the current
+  front penalty, same queue-advance logic as clearing normally.
+
+**Stat Increase on Level-Up — Formula Replacement**
+- Replaced the old "rank domains by HV, top 1-3 get a point" allocation
+  entirely. Every domain now increases on every level-up:
+  \`StatIncrease[domain] = round(domainHV[domain] / justReachedLevel)\`. Each
+  domain's HV resets to 0 immediately after its increase is applied.
+- Old \`allocateStatPoints\` function is commented out in place (not deleted)
+  with the requested header, for reference.
+
+**Shared fix — \`grantHV\` no longer grants hidden XP**
+- Removed the internal \`grantXp\` call from inside \`grantHV\`. Every quest
+  type's XP total is now exactly its stated flat number — Manual 30, Main
+  150, Urgent 75, Emergency 150 — nothing added on top from HV grants. Fixed
+  stale comments/log lines at all 5 call sites this touched (Urgent, Manual,
+  Main, the touched-domain daily pass, and HV Catalyst spend).
+
+**Debug Tab Overhaul**
+- Reorganized into labeled sections, in order: **Quests → Loot → Encounters
+  → Version/Patch Notes**.
+- Quests: added Force Urgent Quest / Force Emergency Quest buttons — both
+  bypass stagnation/neglect gating entirely, firing regardless of current
+  state.
+- Loot: the same 4 triggers from the earlier standalone "Debug Lootbox
+  Triggers" queue item now live here instead (that item is superseded/merged
+  in, not built twice).
+- Encounters: collapsed the old full-list-of-buttons into one dropdown +
+  single "Trigger" button.
+- Domain selector naming disambiguation: the shared domain dropdown is now
+  explicitly labeled "Stat Point Domain" at its source, with every
+  downstream reuse (Dungeon Test Trigger, Lootbox Dungeon triggers) labeled
+  "Dungeon Domain" and noting it shares the same selector.
+
+**Known content gaps — not build-blocking, but not actually done either**
+- **\`EMERGENCY_POOL\` is a placeholder** (1 entry per domain/severity, 18
+  total) clearly flagged in-code — the real 54-entry pool text referenced in
+  the spec ("in the source doc") wasn't included in what shipped this
+  batch. Needs the real content before this is genuinely complete.
+- **\`URGENT_POOL\` was NOT regenerated** — the spec said it also needs
+  replacing with 54 genericized entries (no hardcoded family roles), but it
+  still has its original stub content, including the "spouse/son" phrasing
+  the spec explicitly called out as needing to change.
+- **Trigger-swap correction unverified** — the spec's own note said the
+  Urgent=stagnation/Emergency=neglect assignment was a self-correction on a
+  possible typo, and asked for a verbal confirm with Don before build. That
+  confirmation hasn't happened as far as this chat knows; built as specced,
+  flagging per the source doc's own instruction.
+
+---
+
+## v29 (TEMP DEBUG — not a real feature version)
+
+**Diagnose non-functional notification toggle**
+- Symptom: "Enable Daily Reminders" toggle does nothing when tapped — no
+  permission prompt, no visible change, no crash — on both the installed
+  PWA and a plain browser tab. No console access on the testing device
+  (mobile only), so this adds temporary \`alert()\`-based instrumentation
+  since DevTools isn't reachable.
+- Two temporary changes, both clearly commented
+  \`// TEMP DEBUG — remove after diagnosing toggle issue\`, meant to be
+  stripped out once the real bug is found — no real toggle logic changed:
+  1. A guard at the very top of \`enablePushNotifications()\`, before it
+     touches OneSignal at all: \`if (typeof OneSignal === "undefined")\` →
+     alerts "DEBUG: OneSignal is undefined — SDK did not load".
+     **Placement note:** the original ask was to put this "immediately
+     before the \`promptPush()\` call," which is technically one level deeper
+     — inside the \`oneSignalCall\` callback. I moved it here instead because
+     that inner callback only ever runs once \`oneSignalCall\` has already
+     confirmed \`window.OneSignal\` exists, so the check would never actually
+     fire there — it would silently prove nothing. Checking the bare global
+     right at the top of the handler is the earliest point that can
+     actually catch "the SDK never loaded," which is what this alert claims
+     to detect.
+  2. The toggle button's entire \`onClick\` wrapped in try/catch, surfacing
+     any thrown error as \`alert("DEBUG: Toggle error — " + err.message)\`
+     instead of failing silently.
+- Once the real cause is identified, both blocks should be removed and the
+  version bumped back to a normal (non-debug) build.
 
 ---
 
@@ -788,6 +969,17 @@ const ACHIEVEMENTS = [
 const URGENT_TRIGGER_CHANCE = 0.4; // per level-up check, if any domain is eligible
 const URGENT_QUESTS_PER_CYCLE_CAP = 1; // max NEW urgent quests per daily cycle, regardless of how many level-ups happen within it — tune freely
 const URGENT_QUEST_WINDOW_SECONDS = 6 * 60 * 60; // 6 hours — real response window
+// Emergency Quest System (locked 2026-09-07) — a second, independent quest-trigger
+// system alongside Urgent. TRIGGER SOURCE SWAP: Urgent now checks stagnation ONLY,
+// Emergency checks neglect ONLY (each system checks exactly one condition — the old
+// combined neglect/stagnation tie-break is gone, split cleanly between the two).
+// Emergency rolls FIRST each cycle; if it fires, Urgent does NOT roll that same
+// cycle. If Emergency doesn't fire (no eligible domain, or the chance roll fails),
+// Urgent still gets its own independent roll that same cycle.
+const EMERGENCY_TRIGGER_CHANCE = 0.3; // per level-up check, if any domain is eligible
+const EMERGENCY_QUESTS_PER_CYCLE_CAP = 1;
+const EMERGENCY_QUEST_WINDOW_SECONDS = 24 * 60 * 60; // 24 hours — real response window
+const EMERGENCY_QUEST_XP = 150; // flat — double Urgent's 75
 // Main Quest anti-spam lock: Complete stays disabled until this long after setAt.
 // Not a deadline (no failure state) — purely a "can't set then instantly finish" gate.
 const MAIN_QUEST_TIME_LOCK_MS = 48 * 60 * 60 * 1000;
@@ -1232,6 +1424,15 @@ const DUNGEON_LOCATIONS = {
   social: "Monster Nest",
   faith: "Desert Ruins",
 };
+// Dungeon Key economy — universal key (Mystery Box drop, 8% roll, unaffected) is now
+// ALSO Shop-purchasable at 150g, capped 3/day. Domain-specific keys are Shop-exclusive
+// (no other source), 110g each, also capped 3/day per key type, and only work as entry
+// payment for their one matching dungeon (see DUNGEON_LOCATIONS above for the pairing).
+// Both caps reset on the same daily cycle as dailies/shop gear reroll — see the
+// dailyQuestDeadline rollover effect, which resets keyPurchasesToday alongside it.
+const UNIVERSAL_KEY_SHOP_COST = 150;
+const DOMAIN_KEY_SHOP_COST = 110;
+const KEY_DAILY_PURCHASE_CAP = 3;
 // Fatigue — uniform per "phase reached", not per exact outcome: Complete and Partial
 // both count as "reached the Final Room" (20), Retreat/Failure never got there (50).
 const DUNGEON_FATIGUE = { reachedFinalRoom: 20, retreatOrFail: 50 };
@@ -3002,6 +3203,52 @@ const URGENT_POOL = {
   ],
 };
 
+// ============================================================================
+// EMERGENCY_POOL — CONTENT GAP, PLACEHOLDER ONLY. The queued spec said "Full pool
+// text is in the source doc — paste directly into build chat as-is" (54 entries: 9
+// per domain, 3 mild/3 moderate/3 severe, Relational genericized for future
+// multiplayer with no hardcoded family roles), but that text wasn't actually
+// included in what I received. This placeholder has exactly 1 entry per
+// domain/severity (18 total, not 54) so the game is functionally testable and
+// doesn't crash — replace this entire block with the real pool before treating
+// Emergency Quest as done. Same gap applies to URGENT_POOL above, which the spec
+// also said needs replacing (54 genericized entries) — it currently still has its
+// original stub content, including hardcoded "spouse/son" phrasing the spec called
+// out as needing to change. Both need the real source text pasted in.
+// ============================================================================
+const EMERGENCY_POOL = {
+  financial: [
+    { severity: "mild", label: "PLACEHOLDER — mild financial emergency quest" },
+    { severity: "moderate", label: "PLACEHOLDER — moderate financial emergency quest" },
+    { severity: "severe", label: "PLACEHOLDER — severe financial emergency quest" },
+  ],
+  physical: [
+    { severity: "mild", label: "PLACEHOLDER — mild physical emergency quest" },
+    { severity: "moderate", label: "PLACEHOLDER — moderate physical emergency quest" },
+    { severity: "severe", label: "PLACEHOLDER — severe physical emergency quest" },
+  ],
+  mental: [
+    { severity: "mild", label: "PLACEHOLDER — mild mental emergency quest" },
+    { severity: "moderate", label: "PLACEHOLDER — moderate mental emergency quest" },
+    { severity: "severe", label: "PLACEHOLDER — severe mental emergency quest" },
+  ],
+  relational: [
+    { severity: "mild", label: "PLACEHOLDER — mild relational emergency quest" },
+    { severity: "moderate", label: "PLACEHOLDER — moderate relational emergency quest" },
+    { severity: "severe", label: "PLACEHOLDER — severe relational emergency quest" },
+  ],
+  social: [
+    { severity: "mild", label: "PLACEHOLDER — mild social emergency quest" },
+    { severity: "moderate", label: "PLACEHOLDER — moderate social emergency quest" },
+    { severity: "severe", label: "PLACEHOLDER — severe social emergency quest" },
+  ],
+  faith: [
+    { severity: "mild", label: "PLACEHOLDER — mild faith emergency quest" },
+    { severity: "moderate", label: "PLACEHOLDER — moderate faith emergency quest" },
+    { severity: "severe", label: "PLACEHOLDER — severe faith emergency quest" },
+  ],
+};
+
 // Persistent typewriter: pulls one line at a time off an ever-growing queue, so multiple
 // pushLog calls in the same tick queue up instead of clobbering each other.
 function useTypedLog() {
@@ -3174,19 +3421,43 @@ function SystemEngine() {
   // sync with real time over a 24h window the way a plain setInterval counter would.
   const [dailyQuestDeadline, setDailyQuestDeadline] = useState(null);
   const [nowTick, setNowTick] = useState(() => Date.now());
-  const [penaltyActive, setPenaltyActive] = useState(false);
   const [missCount, setMissCount] = useState(0);
   // Consecutive full Daily Quest passes — increments on completeQuest, resets to 0 on
   // any triggerPenalty (a miss). This is the new counter Dungeon's streak-gate reads;
   // nothing else in the cluster needed it, which is why it didn't exist before now.
   const [currentStreak, setCurrentStreak] = useState(0);
-  const [activeChallenge, setActiveChallenge] = useState(null);
-  const [challengeTier, setChallengeTier] = useState(1);
+  // PENALTY ZONE — QUEUE ARCHITECTURE (2026-09-07). Replaces the old single
+  // activeChallenge/challengeTier/penaltyDeadline/penaltyActive slot. penaltyQueue is
+  // FIFO: [{ challenge, tier, durationSeconds, source }, ...]. index 0 is always the
+  // CURRENTLY ACTIVE penalty (app-locking); anything behind it is queued, silently
+  // waiting. penaltyActive/activeChallenge/challengeTier are now DERIVED from
+  // penaltyQueue[0] each render (see just below the DOMAINS-adjacent consts further
+  // down) rather than stored — one less place for them to drift out of sync with the
+  // queue. penaltyDeadline stays real state: it's specifically the front entry's
+  // absolute countdown end-time, which has to be computed fresh whenever a NEW entry
+  // becomes the front (either a fresh lock with an empty queue, or clearing the
+  // current one advances to the next) — "clearing the current (front) penalty
+  // immediately starts the next queued one's countdown, back-to-back, no gap."
+  const [penaltyQueue, setPenaltyQueue] = useState([]);
   const [penaltyDeadline, setPenaltyDeadline] = useState(null);
+  // Derived from penaltyQueue[0] every render — replaces the old separately-stored
+  // penaltyActive/activeChallenge/challengeTier state entirely.
+  const penaltyActive = penaltyQueue.length > 0;
+  const activeChallenge = penaltyQueue.length > 0 ? penaltyQueue[0].challenge : null;
+  const challengeTier = penaltyQueue.length > 0 ? penaltyQueue[0].tier : 1;
   const [activeUrgentQuests, setActiveUrgentQuests] = useState([]);
   const [urgentTimeLeft, setUrgentTimeLeft] = useState(0);
   const [urgentPopupView, setUrgentPopupView] = useState("quest"); // "quest" | "inventory"
+  const [emergencyPopupView, setEmergencyPopupView] = useState("quest"); // "quest" | "inventory"
   const [urgentQuestsThisCycle, setUrgentQuestsThisCycle] = useState(0);
+  // Emergency Quest System (2026-09-07) — mirrors Urgent's state shape exactly.
+  // CHECKPOINT NOTE: state/mechanics only so far, no dedicated UI yet (modal, countdown
+  // display, failure->penalty wiring) — that's still queued for a follow-up pass. Defined
+  // here now so evaluateEmergencyTriggers (already wired into processLevelUp) doesn't
+  // throw a ReferenceError on the next level-up.
+  const [activeEmergencyQuests, setActiveEmergencyQuests] = useState([]);
+  const [emergencyTimeLeft, setEmergencyTimeLeft] = useState(0);
+  const [emergencyQuestsThisCycle, setEmergencyQuestsThisCycle] = useState(0);
   const [inventory, setInventory] = useState({
     mysteryBoxes: 0,
     teleportStones: 0,
@@ -3194,8 +3465,19 @@ function SystemEngine() {
     xpBoosters: 0,
     hvCatalysts: 0,
     hairstyleChanges: 0,
-    dungeonKeys: 0, // spent by Dungeon (built in a later phase) — just accumulates for now
+    dungeonKeys: 0, // universal key — Mystery Box drop AND Shop-purchasable (150g, capped 3/day)
+    // Domain-specific keys — Shop-exclusive (110g each, capped 3/day per type), one
+    // counter per domain, each only spendable on that domain's matching dungeon. See
+    // DUNGEON_LOCATIONS for the domain->location pairing.
+    domainKeys: Object.fromEntries(DOMAINS.map((d) => [d.key, 0])),
     gold: 0,
+  });
+  // Daily purchase caps for the Shop's key lines — universal + one per domain-specific
+  // key type, 3/day each. Resets on the same daily-rollover boundary as the Shop gear
+  // reroll (see the dailyQuestDeadline effect), NOT tied to inventory/save resets alone.
+  const [keyPurchasesToday, setKeyPurchasesToday] = useState({
+    universal: 0,
+    ...Object.fromEntries(DOMAINS.map((d) => [d.key, 0])),
   });
   const [spendBonusDomain, setSpendBonusDomain] = useState(DOMAINS[0].key);
   const [spendCatalystDomain, setSpendCatalystDomain] = useState(DOMAINS[0].key);
@@ -3329,6 +3611,9 @@ function SystemEngine() {
   // clearing back to the empty string (see debugReset below).
   const [debugLevelInput, setDebugLevelInput] = useState("");
   const [debugStatDomain, setDebugStatDomain] = useState(DOMAINS[0].key);
+  // Debug Tab Overhaul — Encounters section collapsed from a full button-per-encounter
+  // list into one dropdown + a single Trigger button.
+  const [debugEncounterId, setDebugEncounterId] = useState(ENCOUNTER_POOL[0]?.id || "");
   const [debugStatInput, setDebugStatInput] = useState("");
   const [debugRandomizeMaxInput, setDebugRandomizeMaxInput] = useState("");
 
@@ -3389,11 +3674,15 @@ function SystemEngine() {
   ]);
 
 
-  // Shared XP grant + level-up handling, used by every quest type. Consumes an active
-  // XP Booster if one is set — doubles this single grant, then the boost is spent.
-  // Ranks domains by hidden value (HV) and distributes up to 3 stat points on level-up:
-  // 3+ eligible domains (HV > 0) -> top 3 get 1 each. 2 eligible -> 2/1. 1 eligible -> all 3.
-  // Tie-break is randomized each call so ties don't always favor the same domain order.
+  /* ============================================================================
+   * OLD LOGIC — SUPERSEDED, KEPT FOR REFERENCE ONLY. Do not call.
+   * ============================================================================
+   * Ranked domains by hidden value (HV) and distributed up to 3 stat points on
+   * level-up: 3+ eligible domains (HV > 0) -> top 3 get 1 each. 2 eligible -> 2/1.
+   * 1 eligible -> all 3. Tie-break randomized each call. Replaced 2026-09-07 by the
+   * Stat Increase Formula Replacement — every domain now increases on every level-up
+   * (StatIncrease[domain] = round(domainHV[domain] / playerLevel)), not just the
+   * top-ranked 1-3 domains. See processLevelUp below for the new formula in place.
   function allocateStatPoints(hvMap) {
     const eligible = DOMAINS.filter((d) => (hvMap[d.key] || 0) > 0);
     const ranked = [...eligible]
@@ -3411,24 +3700,39 @@ function SystemEngine() {
     }
     return allocation;
   }
+  * ============================================================================ */
 
-  // Applies ranked stat allocation for every level gained in one jump (usually 1, but a big
-  // XP Booster-doubled grant could cross more than one), accumulates the total gain per
-  // domain across however many levels were crossed, applies it once, and queues the popup.
-  // Applies ranked stat allocation for every level gained in one jump (usually 1, but a big
-  // XP Booster-doubled grant could cross more than one). HV resets to zero after each level
-  // processed — including mid-batch for a multi-level jump — so an early lead in HV can't
-  // keep winning every future ranking forever; each level-up starts the ranking fresh.
+  // Applies stat increases for every level gained in one jump (usually 1, but a big
+  // XP Booster-doubled or Emergency Quest grant could cross more than one),
+  // accumulates the total gain per domain across however many levels were crossed,
+  // applies it once, and queues the popup.
+  // STAT INCREASE FORMULA REPLACEMENT (locked 2026-09-07) — replaces the old ranked
+  // top-3 allocation entirely. Every domain now increases on EVERY level-up, driven by
+  // that domain's own accumulated HV: StatIncrease[domain] = round(domainHV[domain] /
+  // playerLevel), where playerLevel is the level JUST reached (post-increment) on that
+  // iteration, not the overall final toLevel — matters for a multi-level jump, where
+  // each level in the span uses its own newly-reached level number. Each domain's HV
+  // resets to 0 immediately after its increase is applied (confirmed via simulation:
+  // reset-each-cycle outperforms cumulative/no-reset on both zero-gain rate and
+  // long-run growth) — this is why a multi-level jump's 2nd+ iteration always computes
+  // 0 gain for every domain, same as the old ranked system's HV-reset behavior.
+  // NOTE: the spec's provided reference implementation (applyLevelUpStatIncreases,
+  // single-level, no return value) is inlined directly into this existing per-level
+  // loop rather than kept as a separate standalone function — this loop already owns
+  // multi-level jump handling, the before/after notification payload, and the neglect
+  // checkpoint pass below, none of which the standalone snippet was written to cover.
   function processLevelUp(fromLevel, toLevel) {
     const beforeStats = { ...domainStats };
     const totalGain = {};
     let hvSnapshot = { ...domainHV };
     for (let i = 0; i < toLevel - fromLevel; i++) {
-      const allocation = allocateStatPoints(hvSnapshot);
-      Object.keys(allocation).forEach((key) => {
-        totalGain[key] = (totalGain[key] || 0) + allocation[key];
+      const newLevel = fromLevel + i + 1; // the level JUST reached on this iteration
+      DOMAINS.forEach((d) => {
+        const hv = hvSnapshot[d.key] || 0;
+        const increase = Math.round(hv / newLevel);
+        if (increase) totalGain[d.key] = (totalGain[d.key] || 0) + increase;
       });
-      hvSnapshot = Object.fromEntries(DOMAINS.map((d) => [d.key, 0]));
+      hvSnapshot = Object.fromEntries(DOMAINS.map((d) => [d.key, 0])); // reset after applying
     }
     setDomainStats((prev) => {
       const next = { ...prev };
@@ -3474,11 +3778,17 @@ function SystemEngine() {
     setDomainPointsMissedStreak(nextPointsMissed);
     setDomainReceivedPointSinceCycle(Object.fromEntries(DOMAINS.map((d) => [d.key, false])));
 
-    // Urgent Quest evaluation runs against the neglect numbers just computed above (not
-    // possibly-stale committed state) and live Main Quest counts for stagnation. Function
-    // declarations are hoisted, so this can reference evaluateUrgentTriggers even though
-    // it's defined later in the file.
-    evaluateUrgentTriggers(nextPointsMissed, domainMainQuestsSinceReset);
+    // Emergency rolls FIRST every level-up check, against the neglect numbers just
+    // computed above (not possibly-stale committed state). If it fires, Urgent does NOT
+    // roll this same cycle — evaluateEmergencyTriggers returns whether it actually added
+    // a quest. If Emergency doesn't fire (no eligible domain, or the chance roll fails),
+    // Urgent still gets its own independent roll this same cycle, against live Main
+    // Quest counts for stagnation. Function declarations are hoisted, so this can
+    // reference both even though they're defined later in the file.
+    const emergencyFired = evaluateEmergencyTriggers(nextPointsMissed);
+    if (!emergencyFired) {
+      evaluateUrgentTriggers(domainMainQuestsSinceReset);
+    }
   }
 
   // BUG FIX (reported twice — Manual Quest completing but XP not landing): grantXp's
@@ -3534,11 +3844,17 @@ function SystemEngine() {
   // Every HV grant also counts toward leveling — 1 HV = 1 XP, applied through the same
   // grantXp path (including XP Booster doubling). This is the single place HV is ever
   // added, so every source (daily tasks, quests, HV Catalyst) stays consistent.
+  // FIX (Emergency Quest System batch, 2026-09-07): grantHV used to also call grantXp
+  // with the boosted HV amount — meaning every "+1 HV" or "+3 HV" quietly added that
+  // many bonus XP on top of the quest's stated flat XP number, undocumented anywhere
+  // in the UI. Removed so each quest type's XP total is EXACTLY its stated flat number
+  // (Manual 30, Main 150, Urgent 75, Emergency 150) — nothing added on top. This also
+  // has to land before Emergency Quest's HV=playerLevel scaling, since that reward
+  // would otherwise silently also grant playerLevel bonus XP via this same path.
   function grantHV(domainKey, amount) {
     const hvMult = 1 + equipmentEnchantBonus("hvGain");
     const boosted = Math.round(amount * hvMult);
     setDomainHV((prev) => ({ ...prev, [domainKey]: (prev[domainKey] || 0) + boosted }));
-    grantXp(boosted);
   }
 
   function activateXpBoost() {
@@ -3553,7 +3869,7 @@ function SystemEngine() {
     const domain = DOMAINS.find((d) => d.key === spendCatalystDomain);
     setInventory((prev) => ({ ...prev, hvCatalysts: prev.hvCatalysts - 1 }));
     grantHV(spendCatalystDomain, 2);
-    pushLog([`[System]: HV Catalyst spent — ${domain.label} +2 HV (+2 XP).`]);
+    pushLog([`[System]: HV Catalyst spent — ${domain.label} +2 HV.`]);
   }
 
   // Avatar creation is one-and-done — this is the only way to change hairstyle afterward.
@@ -3603,6 +3919,41 @@ function SystemEngine() {
     setGoldSpentTotal((prev) => prev + tier.cost);
     setAuraTier(nextIdx + 1);
     pushLog([`[System]: Purchased ${tier.label} — ${tier.cost} Gold.`]);
+  }
+
+  // Universal Dungeon Key — static Shop line, always available (not part of the daily
+  // rotating gear reroll). 150g, capped 3/day; the cap resets alongside the Shop gear
+  // reroll in the dailyQuestDeadline rollover effect.
+  function buyUniversalKey() {
+    if (inventory.gold < UNIVERSAL_KEY_SHOP_COST) return;
+    if (keyPurchasesToday.universal >= KEY_DAILY_PURCHASE_CAP) return;
+    setInventory((prev) => ({
+      ...prev,
+      gold: prev.gold - UNIVERSAL_KEY_SHOP_COST,
+      dungeonKeys: prev.dungeonKeys + 1,
+    }));
+    setGoldSpentTotal((prev) => prev + UNIVERSAL_KEY_SHOP_COST);
+    setKeyPurchasesToday((prev) => ({ ...prev, universal: prev.universal + 1 }));
+    pushLog([`[System]: Purchased Dungeon Key — ${UNIVERSAL_KEY_SHOP_COST} Gold.`]);
+  }
+
+  // Domain-specific key — Shop-exclusive, no other source. 110g each, capped 3/day per
+  // key type. Only spendable as entry payment for that domain's matching dungeon (see
+  // DUNGEON_LOCATIONS) — spend priority (domain-specific first, universal as fallback)
+  // is handled in startDungeonRun.
+  function buyDomainKey(domainKey) {
+    if (inventory.gold < DOMAIN_KEY_SHOP_COST) return;
+    if ((keyPurchasesToday[domainKey] || 0) >= KEY_DAILY_PURCHASE_CAP) return;
+    setInventory((prev) => ({
+      ...prev,
+      gold: prev.gold - DOMAIN_KEY_SHOP_COST,
+      domainKeys: { ...prev.domainKeys, [domainKey]: (prev.domainKeys[domainKey] || 0) + 1 },
+    }));
+    setGoldSpentTotal((prev) => prev + DOMAIN_KEY_SHOP_COST);
+    setKeyPurchasesToday((prev) => ({ ...prev, [domainKey]: (prev[domainKey] || 0) + 1 }));
+    pushLog([
+      `[System]: Purchased ${DUNGEON_LOCATIONS[domainKey]} Key — ${DOMAIN_KEY_SHOP_COST} Gold.`,
+    ]);
   }
 
   // Reusable Shop slot picker — "None" plus each catalog item, showing owned/equipped/
@@ -3717,6 +4068,33 @@ function SystemEngine() {
     );
   }
 
+  // Static Shop line for a dungeon key (universal or domain-specific) — shows remaining
+  // daily purchases left out of KEY_DAILY_PURCHASE_CAP, disables once either gold or the
+  // cap runs out.
+  function renderKeyShopLine(label, scopeLabel, cost, purchasedToday, buyFn) {
+    const remaining = KEY_DAILY_PURCHASE_CAP - purchasedToday;
+    const disabled = inventory.gold < cost || remaining <= 0;
+    return (
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div>
+          <div className="mono text-[9px]" style={{ color: "#D6DCE5" }}>
+            {label} <span className="text-[#F2C94C]">{cost}g</span>
+          </div>
+          <div className="mono text-[9px]" style={{ color: "#5A6272" }}>
+            {scopeLabel} · {remaining}/{KEY_DAILY_PURCHASE_CAP} left today
+          </div>
+        </div>
+        <button
+          onClick={buyFn}
+          disabled={disabled}
+          className="mono text-[9px] px-3 py-1.5 rounded border border-dashed border-[#2A3140] text-[#D6DCE5] opacity-80 hover:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed transition shrink-0"
+        >
+          BUY
+        </button>
+      </div>
+    );
+  }
+
   // Equip panel — one card per owned item, per slot. Each card shows the item name/
   // header plus its full Primary/Secondary/Enchant breakdown (equipmentCardLines —
   // Gear Card redo), an explicit EQUIP/UNEQUIP button (never a bare click-to-toggle),
@@ -3824,6 +4202,7 @@ function SystemEngine() {
         inventory.xpBoosters > 0 ||
         inventory.hvCatalysts > 0 ||
         inventory.dungeonKeys > 0 ||
+        Object.values(inventory.domainKeys).some((n) => n > 0) ||
         inventory.gold > 0) && (
         <div className="border border-[#1E2430] bg-[#12151C] rounded-md px-4 py-3 mb-4 space-y-2">
           <div className="flex items-center justify-between">
@@ -3859,10 +4238,24 @@ function SystemEngine() {
           {inventory.dungeonKeys > 0 && (
             <div className="flex items-center justify-between">
               <span className="mono text-xs text-[#F2A93B]">
-                Dungeon Key × {inventory.dungeonKeys}
+                Universal Key × {inventory.dungeonKeys}
               </span>
-              <span className="mono text-[10px] text-[#5A6272]">spent entering a Dungeon</span>
+              <span className="mono text-[10px] text-[#5A6272]">any Dungeon — fallback pool</span>
             </div>
+          )}
+
+          {DOMAINS.map(
+            (d) =>
+              (inventory.domainKeys[d.key] || 0) > 0 && (
+                <div key={d.key} className="flex items-center justify-between">
+                  <span className="mono text-xs" style={{ color: d.color }}>
+                    {DUNGEON_LOCATIONS[d.key]} Key × {inventory.domainKeys[d.key]}
+                  </span>
+                  <span className="mono text-[10px] text-[#5A6272]">
+                    {DUNGEON_LOCATIONS[d.key]} only — spent first
+                  </span>
+                </div>
+              )
           )}
 
           {inventory.bonusStatPoints > 0 && (
@@ -3955,22 +4348,23 @@ function SystemEngine() {
   // Rebalanced for Dungeon Key (8%) — trimmed only from Small Gold (31%->23%), every
   // other entry's odds are untouched. No level-up key source per design — Mystery Box
   // is the only way to earn one.
+  // Gold tier payouts doubled (20/50/120) — roll thresholds/odds themselves untouched.
   function openMysteryBox() {
     if (inventory.mysteryBoxes <= 0) return;
     setInventory((prev) => ({ ...prev, mysteryBoxes: prev.mysteryBoxes - 1 }));
     const roll = Math.random() * 100;
     if (roll < 23) {
-      setInventory((prev) => ({ ...prev, gold: prev.gold + 10 }));
-      setGoldEarnedTotal((prev) => prev + 10);
-      pushLog(["[System]: Mystery Box — 10 Gold."]);
+      setInventory((prev) => ({ ...prev, gold: prev.gold + 20 }));
+      setGoldEarnedTotal((prev) => prev + 20);
+      pushLog(["[System]: Mystery Box — 20 Gold."]);
     } else if (roll < 41) {
-      setInventory((prev) => ({ ...prev, gold: prev.gold + 25 }));
-      setGoldEarnedTotal((prev) => prev + 25);
-      pushLog(["[System]: Mystery Box — 25 Gold."]);
+      setInventory((prev) => ({ ...prev, gold: prev.gold + 50 }));
+      setGoldEarnedTotal((prev) => prev + 50);
+      pushLog(["[System]: Mystery Box — 50 Gold."]);
     } else if (roll < 47) {
-      setInventory((prev) => ({ ...prev, gold: prev.gold + 60 }));
-      setGoldEarnedTotal((prev) => prev + 60);
-      pushLog(["[System]: Mystery Box — 60 Gold."]);
+      setInventory((prev) => ({ ...prev, gold: prev.gold + 120 }));
+      setGoldEarnedTotal((prev) => prev + 120);
+      pushLog(["[System]: Mystery Box — 120 Gold."]);
     } else if (roll < 57) {
       setInventory((prev) => ({ ...prev, bonusStatPoints: prev.bonusStatPoints + 1 }));
       pushLog(["[System]: Mystery Box — Bonus Stat Point acquired."]);
@@ -3999,12 +4393,16 @@ function SystemEngine() {
     }
   }
 
+  // Skips (only) the CURRENT front penalty — advances the queue same as clearPenalty,
+  // starting the next queued entry's countdown fresh if there is one.
   function useTeleportStone() {
     if (inventory.teleportStones <= 0) return;
     setInventory((prev) => ({ ...prev, teleportStones: prev.teleportStones - 1 }));
-    setPenaltyActive(false);
-    setActiveChallenge(null);
-    setPenaltyDeadline(null);
+    setPenaltyQueue((prev) => {
+      const next = prev.slice(1);
+      setPenaltyDeadline(next.length > 0 ? Date.now() + next[0].durationSeconds * 1000 : null);
+      return next;
+    });
     pushLog([
       "[System]: Teleportation Stone used.",
       "[System]: Penalty bypassed. App access restored.",
@@ -4140,6 +4538,11 @@ function SystemEngine() {
 
   function enablePushNotifications() {
     setShowPushDeniedNote(false);
+    // TEMP DEBUG — remove after diagnosing toggle issue
+    if (typeof OneSignal === "undefined") {
+      alert("DEBUG: OneSignal is undefined — SDK did not load");
+      return;
+    }
     oneSignalCall((OneSignal) => {
       OneSignal.Slidedown.promptPush();
       // Re-check shortly after — if the browser already denied permission previously,
@@ -4248,9 +4651,27 @@ function SystemEngine() {
           if (s.domainMainQuestsSinceReset) setDomainMainQuestsSinceReset(s.domainMainQuestsSinceReset);
           if (s.domainQuestCount) setDomainQuestCount(s.domainQuestCount);
           if (s.totalCyclesCompleted !== undefined) setTotalCyclesCompleted(s.totalCyclesCompleted);
-          // Merge with a default dungeonKeys so saves from before this field existed
-          // don't produce NaN when a key drops or "undefined" in the inventory display.
-          if (s.inventory) setInventory({ dungeonKeys: 0, ...s.inventory });
+          // Merge with a default dungeonKeys/domainKeys so saves from before these fields
+          // existed don't produce NaN when a key drops or "undefined" in the inventory
+          // display. domainKeys is merged one level deeper so a save from before the
+          // 6-key split doesn't lose individual domain counters to a blanket overwrite.
+          if (s.inventory) {
+            setInventory({
+              dungeonKeys: 0,
+              ...s.inventory,
+              domainKeys: {
+                ...Object.fromEntries(DOMAINS.map((d) => [d.key, 0])),
+                ...(s.inventory.domainKeys || {}),
+              },
+            });
+          }
+          if (s.keyPurchasesToday) {
+            setKeyPurchasesToday({
+              universal: 0,
+              ...Object.fromEntries(DOMAINS.map((d) => [d.key, 0])),
+              ...s.keyPurchasesToday,
+            });
+          }
           if (s.xpBoostActive !== undefined) setXpBoostActive(s.xpBoostActive);
           if (s.unlockedEmblems) setUnlockedEmblems(s.unlockedEmblems);
           // Merge with a default eyeStyle so saves from before this field existed
@@ -4304,9 +4725,7 @@ function SystemEngine() {
           if (s.checked) setChecked(s.checked);
           if (s.questComplete !== undefined) setQuestComplete(s.questComplete);
           if (s.dailyQuestDeadline !== undefined) setDailyQuestDeadline(s.dailyQuestDeadline);
-          if (s.penaltyActive !== undefined) setPenaltyActive(s.penaltyActive);
-          if (s.activeChallenge !== undefined) setActiveChallenge(s.activeChallenge);
-          if (s.challengeTier !== undefined) setChallengeTier(s.challengeTier);
+          if (s.penaltyQueue !== undefined) setPenaltyQueue(s.penaltyQueue);
           if (s.penaltyDeadline !== undefined) setPenaltyDeadline(s.penaltyDeadline);
           hadSave = true;
         }
@@ -4344,6 +4763,7 @@ function SystemEngine() {
       domainQuestCount,
       totalCyclesCompleted,
       inventory,
+      keyPurchasesToday,
       xpBoostActive,
       unlockedEmblems,
       avatar,
@@ -4369,9 +4789,7 @@ function SystemEngine() {
       checked,
       questComplete,
       dailyQuestDeadline,
-      penaltyActive,
-      activeChallenge,
-      challengeTier,
+      penaltyQueue,
       penaltyDeadline,
     };
     window.storage.set("system-engine-save", JSON.stringify(state), false).catch(() => {});
@@ -4386,6 +4804,7 @@ function SystemEngine() {
     domainQuestCount,
     totalCyclesCompleted,
     inventory,
+    keyPurchasesToday,
     xpBoostActive,
     unlockedEmblems,
     avatar,
@@ -4411,9 +4830,7 @@ function SystemEngine() {
     checked,
     questComplete,
     dailyQuestDeadline,
-    penaltyActive,
-    activeChallenge,
-    challengeTier,
+    penaltyQueue,
     penaltyDeadline,
   ]);
 
@@ -4441,7 +4858,12 @@ function SystemEngine() {
       hvCatalysts: 0,
       hairstyleChanges: 0,
       dungeonKeys: 0,
+      domainKeys: Object.fromEntries(DOMAINS.map((d) => [d.key, 0])),
       gold: 0,
+    });
+    setKeyPurchasesToday({
+      universal: 0,
+      ...Object.fromEntries(DOMAINS.map((d) => [d.key, 0])),
     });
     setXpBoostActive(false);
     setUnlockedEmblems({});
@@ -4481,6 +4903,9 @@ function SystemEngine() {
     setUrgentTimeLeft(0);
     setUrgentPopupView("quest");
     setUrgentQuestsThisCycle(0);
+    setActiveEmergencyQuests([]);
+    setEmergencyTimeLeft(0);
+    setEmergencyQuestsThisCycle(0);
     setShopOwned({ head: [], upper: [], lower: [] });
     setShopEquipped({ head: null, upper: null, lower: null });
     setGearInventory([]);
@@ -4491,9 +4916,7 @@ function SystemEngine() {
     setChecked({});
     setQuestComplete(false);
     setDailyQuestDeadline(null); // init effect will set a fresh next-midnight value
-    setPenaltyActive(false);
-    setActiveChallenge(null);
-    setChallengeTier(1);
+    setPenaltyQueue([]);
     setPenaltyDeadline(null);
     setResetArmed(false);
     setSimResults(null);
@@ -4558,6 +4981,12 @@ function SystemEngine() {
     // the penaltyActive-guarded branch above rather than its own independent day-
     // counter, so it turns over exactly when the rest of the daily cycle does.
     setShopGearStock(rollShopGearStock(level));
+    // Key purchase caps (universal + 6 domain-specific) reset on this exact same
+    // real-midnight boundary, same reasoning as the Shop gear reroll above.
+    setKeyPurchasesToday({
+      universal: 0,
+      ...Object.fromEntries(DOMAINS.map((d) => [d.key, 0])),
+    });
     // OneSignal — Daily Quest completion tag resets here too, unconditionally: whether
     // the previous cycle ended in a clean completion or a penalty, a new day of Daily
     // Quests has begun and yesterday's "done" status no longer applies.
@@ -4621,6 +5050,34 @@ function SystemEngine() {
     pushLog([`[System]: Urgent Quest failed — ${quest.label}`, "[System]: No reward granted."]);
   }
 
+  // Emergency Quest's focus/countdown effect — structurally identical to Urgent's above
+  // (same ref-based "brand new quest vs. still counting down" split, same reasoning for
+  // why it has to be one effect not two), except on timeout it calls failEmergencyQuest
+  // (queues a Tier 2 penalty) instead of Urgent's no-penalty failure. focusedEmergencyQuest
+  // is a derived const (mirrors focusedUrgentQuest above), not stored state.
+  const focusedEmergencyQuest = activeEmergencyQuests[0] || null;
+  const focusedEmergencyQuestIdRef = useRef(null);
+
+  useEffect(() => {
+    if (!focusedEmergencyQuest) {
+      focusedEmergencyQuestIdRef.current = null;
+      return;
+    }
+    if (focusedEmergencyQuestIdRef.current !== focusedEmergencyQuest.id) {
+      focusedEmergencyQuestIdRef.current = focusedEmergencyQuest.id;
+      setEmergencyTimeLeft(EMERGENCY_QUEST_WINDOW_SECONDS);
+      setEmergencyPopupView("quest");
+      return; // don't evaluate failure this same pass — nothing to fail yet
+    }
+    if (emergencyTimeLeft <= 0) {
+      failEmergencyQuest(focusedEmergencyQuest);
+      return;
+    }
+    const t = setTimeout(() => setEmergencyTimeLeft((s) => s - 1), 1000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [emergencyTimeLeft, focusedEmergencyQuest]);
+
   function touchedMapFromChecked() {
     const map = {};
     DOMAINS.forEach((d) => {
@@ -4637,8 +5094,8 @@ function SystemEngine() {
   function endCycle({ awardPoints }) {
     const touched = touchedMapFromChecked();
 
-    // Daily task HV growth now routes through grantHV, so it also counts toward leveling
-    // (1 HV = 1 XP), consistent with every other HV source.
+    // Daily task HV growth routes through grantHV. Since the shared fix (grantHV no
+    // longer also grants XP), this only grows HV now — no hidden XP on top.
     DOMAINS.forEach((d) => {
       if (touched[d.key]) grantHV(d.key, 2);
     });
@@ -4659,10 +5116,11 @@ function SystemEngine() {
       pushLog(["[System]: +1 Stat Point earned. Allocate it in Inventory."]);
     }
 
-    // The daily cycle's only remaining job for the Urgent Quest system: refresh the
-    // per-cycle fire cap. Neglect and stagnation are both level-up-driven now — this
-    // cycle boundary doesn't touch either of them.
+    // The daily cycle's only remaining job for the Urgent/Emergency Quest systems:
+    // refresh their per-cycle fire caps. Neglect and stagnation are both level-up-driven
+    // now — this cycle boundary doesn't touch either of them.
     setUrgentQuestsThisCycle(0);
+    setEmergencyQuestsThisCycle(0);
     setTotalCyclesCompleted((n) => n + 1); // real endCycle() count, for comparing against Level
 
     setChecked({});
@@ -4691,39 +5149,40 @@ function SystemEngine() {
   }
 
   // Caps at 1 new Urgent Quest per cycle, gated on chance rather than firing automatically
-  // the instant a domain crosses threshold. Two independent trigger sources feed the same
-  // pool: neglect (not touched) and stagnation (touched, but keeps losing the point ranking).
-  // Whichever is worse for a domain determines its severity. Eligible domains that don't get
-  // picked stay queued silently for future cycles — no notification for a non-event.
+  // the instant a domain crosses threshold. TRIGGER SOURCE SWAP (locked 2026-09-07):
+  // Urgent now checks STAGNATION only — neglect belongs to Emergency Quest instead (see
+  // below). The old combined neglect/stagnation tie-break is gone entirely; each system
+  // checks exactly one condition, independently. Eligible domains that don't get picked
+  // stay queued silently for future cycles — no notification for a non-event.
   // Pure readout of what's currently eligible, straight from real committed game state —
-  // used for the debug panel's live preview and the "run trigger on current state" button.
-  // NOT used by evaluateUrgentTriggers itself: that function is called from processLevelUp
-  // with a freshly-computed neglect map that hasn't been committed to state yet, so it needs
-  // its own pass rather than reading domainPointsMissedStreak directly.
-  function getCurrentEligibleDomains() {
+  // used for the debug panel's live preview. NOT used by evaluateUrgentTriggers itself:
+  // that function is called from processLevelUp with live domainMainQuestsSinceReset,
+  // which doesn't need a freshly-computed pass the way neglect (used by Emergency) does.
+  function getCurrentEligibleUrgentDomains() {
     return DOMAINS.map((d) => {
       if (activeUrgentQuests.some((q) => q.domain === d.key)) return null;
-      const neglectSev = severityFromNeglect(domainPointsMissedStreak[d.key] || 0);
-      const stagnationSev = severityFromStagnation(d.key, domainMainQuestsSinceReset);
-      let severity = null;
-      let reason = null;
-      if (neglectSev && SEVERITY_RANK[neglectSev] >= (SEVERITY_RANK[stagnationSev] || 0)) {
-        severity = neglectSev;
-        reason = "neglect";
-      } else if (stagnationSev) {
-        severity = stagnationSev;
-        reason = "stagnation";
-      }
-      return severity ? { domain: d, severity, reason } : null;
+      const severity = severityFromStagnation(d.key, domainMainQuestsSinceReset);
+      return severity ? { domain: d, severity } : null;
     }).filter(Boolean);
   }
 
-  // Pure roll: given a list of {domain, severity} eligible entries, returns the picked
-  // one or null. No side effects — this is the exact mechanism both the real trigger path
-  // and the debug simulator use, so simulating it actually tests the real code.
-  function rollUrgentTrigger(eligible) {
+  // Emergency Quest's eligible-domain readout — NEGLECT only, mirrors the Urgent
+  // version above exactly except for which single condition it checks.
+  function getCurrentEligibleEmergencyDomains() {
+    return DOMAINS.map((d) => {
+      if (activeEmergencyQuests.some((q) => q.domain === d.key)) return null;
+      const severity = severityFromNeglect(domainPointsMissedStreak[d.key] || 0);
+      return severity ? { domain: d, severity } : null;
+    }).filter(Boolean);
+  }
+
+  // Pure roll: given a list of {domain, severity} eligible entries and a trigger chance,
+  // returns the picked one or null. No side effects — shared by both Urgent and
+  // Emergency (and their debug simulators), so simulating either actually tests the
+  // real code, not a reimplementation of it.
+  function rollWeightedTrigger(eligible, chance) {
     if (eligible.length === 0) return null;
-    if (Math.random() > URGENT_TRIGGER_CHANCE) return null;
+    if (Math.random() > chance) return null;
     const totalWeight = eligible.reduce((sum, e) => sum + SEVERITY_WEIGHT[e.severity], 0);
     let roll = Math.random() * totalWeight;
     let picked = eligible[0];
@@ -4736,8 +5195,14 @@ function SystemEngine() {
     }
     return picked;
   }
+  function rollUrgentTrigger(eligible) {
+    return rollWeightedTrigger(eligible, URGENT_TRIGGER_CHANCE);
+  }
+  function rollEmergencyTrigger(eligible) {
+    return rollWeightedTrigger(eligible, EMERGENCY_TRIGGER_CHANCE);
+  }
 
-  // Debug: fires rollUrgentTrigger 1000x against a synthetic eligible set (not real game
+  // Debug: fires rollWeightedTrigger 1000x against a synthetic eligible set (not real game
   // state) and tallies results. Tests the actual chance-gate + severity-weighting mechanism
   // in isolation, since waiting on real cycles to see if the odds "feel right" is slow and
   // easy to misjudge from a handful of pulls.
@@ -4755,23 +5220,13 @@ function SystemEngine() {
     setSimResults({ scenarioLabel, iterations, firedCount, pickCounts, eligible });
   }
 
-  function evaluateUrgentTriggers(pointsMissedMap, mainQuestCounts) {
+  function evaluateUrgentTriggers(mainQuestCounts) {
     if (urgentQuestsThisCycle >= URGENT_QUESTS_PER_CYCLE_CAP) return; // cap reached for this cycle
     setActiveUrgentQuests((prevActive) => {
       const eligible = DOMAINS.map((d) => {
         if (prevActive.some((q) => q.domain === d.key)) return null; // already has one active
-        const neglectSev = severityFromNeglect(pointsMissedMap[d.key] || 0);
-        const stagnationSev = severityFromStagnation(d.key, mainQuestCounts);
-        let severity = null;
-        let reason = null;
-        if (neglectSev && SEVERITY_RANK[neglectSev] >= (SEVERITY_RANK[stagnationSev] || 0)) {
-          severity = neglectSev;
-          reason = "neglect";
-        } else if (stagnationSev) {
-          severity = stagnationSev;
-          reason = "stagnation";
-        }
-        return severity ? { domain: d, severity, reason } : null;
+        const severity = severityFromStagnation(d.key, mainQuestCounts);
+        return severity ? { domain: d, severity } : null;
       }).filter(Boolean);
 
       const picked = rollUrgentTrigger(eligible);
@@ -4787,8 +5242,8 @@ function SystemEngine() {
         severity: picked.severity,
       };
 
-      // Player-facing log stays mechanics-free — no "neglect"/"stagnation" reveal, same
-      // spirit as HV being a hidden value. The severity badge on the quest card itself
+      // Player-facing log stays mechanics-free — no "stagnation" reveal, same spirit as
+      // HV being a hidden value. The severity badge on the quest card itself
       // (mild/moderate/severe) is the only difficulty signal the player sees.
       pushLog([
         `[System]: Urgent Quest — ${picked.domain.label}.`,
@@ -4796,15 +5251,53 @@ function SystemEngine() {
       ]);
       setUrgentQuestsThisCycle((n) => n + 1);
 
-      // Stagnation reset rule: firing a quest FOR stagnation wipes the imbalance window for
-      // EVERY domain, not just the picked one — the slate clears once you've been prompted
-      // to address it, rather than immediately flagging whichever domain is next-most-behind.
-      if (picked.reason === "stagnation") {
-        setDomainMainQuestsSinceReset(Object.fromEntries(DOMAINS.map((dm) => [dm.key, 0])));
-      }
+      // Firing a quest wipes the imbalance window for EVERY domain, not just the picked
+      // one — the slate clears once you've been prompted to address it, rather than
+      // immediately flagging whichever domain is next-most-behind. Unconditional now
+      // (used to be gated on reason==="stagnation" back when Urgent had two reasons —
+      // stagnation is the ONLY reason now, so this always applies).
+      setDomainMainQuestsSinceReset(Object.fromEntries(DOMAINS.map((dm) => [dm.key, 0])));
 
       return [...prevActive, newQuest];
     });
+  }
+
+  // Emergency Quest's trigger evaluation — NEGLECT only, mirrors evaluateUrgentTriggers
+  // structurally. Returns whether it actually fired (added a new quest), since
+  // processLevelUp needs that to decide whether Urgent gets to roll this same cycle
+  // (Emergency rolls FIRST; if it fires, Urgent does NOT roll that cycle).
+  function evaluateEmergencyTriggers(pointsMissedMap) {
+    if (emergencyQuestsThisCycle >= EMERGENCY_QUESTS_PER_CYCLE_CAP) return false;
+    let fired = false;
+    setActiveEmergencyQuests((prevActive) => {
+      const eligible = DOMAINS.map((d) => {
+        if (prevActive.some((q) => q.domain === d.key)) return null;
+        const severity = severityFromNeglect(pointsMissedMap[d.key] || 0);
+        return severity ? { domain: d, severity } : null;
+      }).filter(Boolean);
+
+      const picked = rollEmergencyTrigger(eligible);
+      if (!picked) return prevActive;
+
+      const pool = EMERGENCY_POOL[picked.domain.key].filter((q) => q.severity === picked.severity);
+      if (pool.length === 0) return prevActive;
+      const chosen = pool[Math.floor(Math.random() * pool.length)];
+      const newQuest = {
+        id: `${picked.domain.key}-${Date.now()}-${Math.random()}`,
+        domain: picked.domain.key,
+        label: chosen.label,
+        severity: picked.severity,
+      };
+
+      pushLog([
+        `[System]: EMERGENCY QUEST — ${picked.domain.label}.`,
+        `[System]: ${chosen.label}`,
+      ]);
+      setEmergencyQuestsThisCycle((n) => n + 1);
+      fired = true;
+      return [...prevActive, newQuest];
+    });
+    return fired;
   }
 
   // Debug-only wrapper: runs the real trigger logic (same pure helpers, same real
@@ -4812,7 +5305,7 @@ function SystemEngine() {
   // captures the outcome synchronously for display, since evaluateUrgentTriggers itself is
   // silent on a non-fire by design, which makes it look like nothing happened when testing.
   function runTriggerOnCurrentState() {
-    const eligible = getCurrentEligibleDomains();
+    const eligible = getCurrentEligibleUrgentDomains();
     const picked = rollUrgentTrigger(eligible);
 
     if (!picked) {
@@ -4857,7 +5350,7 @@ function SystemEngine() {
     setDomainStats((prev) => ({ ...prev, [quest.domain]: prev[quest.domain] + 1 }));
     setDomainReceivedPointSinceCycle((prev) => ({ ...prev, [quest.domain]: true })); // auto stat point
     grantXp(75); // XP rebalance 2026-09-06 — Urgent bumped from 25 to 75 (Manual 30 / Main 150)
-    grantHV(quest.domain, 1); // +1 more XP on top of the 75, since HV now always carries XP
+    grantHV(quest.domain, 1); // HV only now — grantHV no longer adds hidden bonus XP
     pushLog([
       `[System]: Urgent Quest resolved — ${quest.label}`,
       "[System]: +75 XP, +1 stat point.",
@@ -4868,6 +5361,30 @@ function SystemEngine() {
       type: "Urgent Quest",
       label: quest.label,
       lines: ["+75 XP", "+1 stat point", ...(gotBox ? ["+1 Mystery Box"] : [])],
+    });
+  }
+
+  // Emergency Quest resolution — same shape as resolveUrgentQuest, different reward
+  // numbers: flat 150 XP (double Urgent's 75), +1 stat (same as Urgent), and HV = the
+  // player's CURRENT level (grantHV(domain, level), not a flat number) — a genuinely
+  // level-scaling reward, unlike every other quest type's fixed HV amounts.
+  function resolveEmergencyQuest(quest) {
+    setActiveEmergencyQuests((prev) => prev.filter((q) => q.id !== quest.id));
+    setDomainQuestCount((prev) => ({ ...prev, [quest.domain]: (prev[quest.domain] || 0) + 1 }));
+    setDomainStats((prev) => ({ ...prev, [quest.domain]: prev[quest.domain] + 1 }));
+    setDomainReceivedPointSinceCycle((prev) => ({ ...prev, [quest.domain]: true })); // auto stat point
+    grantXp(EMERGENCY_QUEST_XP);
+    grantHV(quest.domain, level); // HV = player level, per spec — scales with progression
+    pushLog([
+      `[System]: Emergency Quest resolved — ${quest.label}`,
+      `[System]: +${EMERGENCY_QUEST_XP} XP, +1 stat point, +${level} HV.`,
+    ]);
+    maybeRollEncounter(); // same non-Daily completion bonuses as every other quest type
+    const gotBox = maybeGrantMysteryBox(); // independent roll
+    setQuestCompletePopup({
+      type: "Emergency Quest",
+      label: quest.label,
+      lines: [`+${EMERGENCY_QUEST_XP} XP`, "+1 stat point", ...(gotBox ? ["+1 Mystery Box"] : [])],
     });
   }
 
@@ -4895,7 +5412,7 @@ function SystemEngine() {
     setManualQuests((prev) => prev.filter((q) => q.id !== quest.id));
     setDomainQuestCount((prev) => ({ ...prev, [quest.domain]: (prev[quest.domain] || 0) + 1 }));
     grantXp(30); // XP rebalance 2026-09-06 — Manual 30 / Main 150 / Urgent 75
-    grantHV(quest.domain, 1); // +1 more XP on top of the 30
+    grantHV(quest.domain, 1); // HV only now — grantHV no longer adds hidden bonus XP
     pushLog([`[System]: Manual Quest complete — ${quest.label}`, "[System]: +30 XP, +1 HV."]);
     maybeRollEncounter(); // non-Daily completion — small chance of an Encounter
     const gotBox = maybeGrantMysteryBox(); // same non-Daily completions, independent roll
@@ -4945,7 +5462,7 @@ function SystemEngine() {
     setDomainQuestCount((prev) => ({ ...prev, [domainKey]: (prev[domainKey] || 0) + 1 }));
     setDomainMainQuestsSinceReset((prev) => ({ ...prev, [domainKey]: (prev[domainKey] || 0) + 1 }));
     grantXp(150); // XP rebalance 2026-09-06 — Manual 30 / Main 150 / Urgent 75
-    grantHV(domainKey, 3); // +3 more XP on top of the 150
+    grantHV(domainKey, 3); // HV only now — grantHV no longer adds hidden bonus XP
     pushLog([
       `[System]: Main Quest complete — ${quest.specific}`,
       "[System]: +150 XP, +3 HV.",
@@ -5121,12 +5638,15 @@ function SystemEngine() {
   // Gate check — all 4 must pass: level, the specific domain's stat, current streak,
   // and having enough keys banked. Fatigue is the hard wall (>80 blocks regardless of
   // the other 3), matching the locked design distinguishing Dungeon from Encounters.
+  // Key availability is domain-specific keys PLUS the universal pool combined — spend
+  // priority (domain-specific first) is resolved separately in startDungeonRun.
   function canAttemptDungeon(domainKey, tier) {
+    const availableKeys = (inventory.domainKeys[domainKey] || 0) + inventory.dungeonKeys;
     return (
       level >= tier.levelReq &&
       (domainStats[domainKey] || 0) >= tier.statReq &&
       currentStreak >= tier.streakReq &&
-      inventory.dungeonKeys >= tier.keysReq &&
+      availableKeys >= tier.keysReq &&
       currentFatigue <= 80
     );
   }
@@ -5195,7 +5715,18 @@ function SystemEngine() {
     if (!tier) return;
     if (!debugForced) {
       if (!canAttemptDungeon(domainKey, tier)) return;
-      setInventory((prev) => ({ ...prev, dungeonKeys: prev.dungeonKeys - tier.keysReq }));
+      // Spend priority: domain-specific keys for this dungeon FIRST, universal pool
+      // only covers whatever's left — never the other way around.
+      setInventory((prev) => {
+        const domainAvail = prev.domainKeys[domainKey] || 0;
+        const fromDomain = Math.min(domainAvail, tier.keysReq);
+        const fromUniversal = tier.keysReq - fromDomain;
+        return {
+          ...prev,
+          domainKeys: { ...prev.domainKeys, [domainKey]: domainAvail - fromDomain },
+          dungeonKeys: prev.dungeonKeys - fromUniversal,
+        };
+      });
     }
     const [roomMin, roomMax] = DUNGEON_ROOM_COUNT_RANGE[tierKey];
     const totalRooms = dungeonRandomInt(roomMin, roomMax);
@@ -5654,22 +6185,29 @@ function SystemEngine() {
     );
   }
 
+  // Appends one penalty entry to penaltyQueue. If the queue was empty, this becomes
+  // the active (front) penalty and its countdown starts immediately; otherwise it
+  // queues silently behind whatever's already active. `source` ("daily" | "emergency")
+  // just lets clearPenalty's log line be accurate about what's being cleared.
+  function queuePenalty(challenge, tier, source) {
+    const durationSeconds = Math.round(challenge.baseSeconds * (tier === 2 ? ESCALATION_MULTIPLIER : 1));
+    setPenaltyQueue((prev) => {
+      const wasEmpty = prev.length === 0;
+      if (wasEmpty) setPenaltyDeadline(Date.now() + durationSeconds * 1000);
+      return [...prev, { challenge, tier, durationSeconds, source }];
+    });
+  }
+
   function triggerPenalty() {
     endCycle({ awardPoints: false }); // cycle ends in failure — HV/neglect still update, no points awarded
 
     const nextMissCount = missCount + 1;
     const tier = nextMissCount >= ESCALATION_THRESHOLD ? 2 : 1;
     const challenge = PENALTY_POOL[Math.floor(Math.random() * PENALTY_POOL.length)];
-    const duration = Math.round(
-      challenge.baseSeconds * (tier === 2 ? ESCALATION_MULTIPLIER : 1)
-    );
 
     setMissCount(nextMissCount);
-    setActiveChallenge(challenge);
-    setChallengeTier(tier);
-    setPenaltyDeadline(Date.now() + duration * 1000);
-    setPenaltyActive(true);
     setCurrentStreak(0); // any miss breaks the streak Dungeon's streak-gate checks
+    queuePenalty(challenge, tier, "daily");
 
     pushLog([
       "[System]: Daily Quest failed.",
@@ -5680,16 +6218,35 @@ function SystemEngine() {
     ]);
   }
 
+  // Emergency Quest failure — flat Tier 2 regardless of missCount, and deliberately
+  // does NOT increment missCount: fully separate from Daily Quest's escalation system.
+  // Appends (never interrupts an in-progress penalty).
+  function failEmergencyQuest(quest) {
+    setActiveEmergencyQuests((prev) => prev.filter((q) => q.id !== quest.id));
+    const challenge = PENALTY_POOL[Math.floor(Math.random() * PENALTY_POOL.length)];
+    queuePenalty(challenge, 2, "emergency");
+    pushLog([
+      `[System]: Emergency Quest failed — ${quest.label}`,
+      `[System]: App locked. Penalty queued: ${challenge.label} (Tier 2).`,
+    ]);
+  }
+
+  // Clears the FRONT penalty and, if another is queued behind it, immediately starts
+  // that one's countdown fresh — back-to-back, no gap. App stays fully locked until
+  // the whole queue is empty.
   function clearPenalty() {
     if (!canClearPenalty) return;
+    const clearedSource = penaltyQueue.length > 0 ? penaltyQueue[0].source : null;
+    setPenaltyQueue((prev) => {
+      const next = prev.slice(1);
+      setPenaltyDeadline(next.length > 0 ? Date.now() + next[0].durationSeconds * 1000 : null);
+      return next;
+    });
     pushLog([
       "[System]: Challenge verified complete.",
       "[System]: App access restored.",
-      "[System]: Daily Quest reset.",
+      ...(clearedSource === "daily" ? ["[System]: Daily Quest reset."] : []),
     ]);
-    setPenaltyActive(false);
-    setActiveChallenge(null);
-    setPenaltyDeadline(null);
   }
 
   function toggleTask(task) {
@@ -5707,19 +6264,23 @@ function SystemEngine() {
 
   function completeQuest() {
     setQuestComplete(true);
-    const gainedXp = 40;
+    const gainedXp = 50;
 
-    pushLog(["[System]: Daily Quest complete.", `[System]: +${gainedXp} XP.`, "[System]: +1 Mystery Box."]);
+    pushLog([
+      "[System]: Daily Quest complete.",
+      `[System]: +${gainedXp} XP, +50 Gold.`,
+      "[System]: +1 Mystery Box.",
+    ]);
     grantXp(gainedXp);
     setMissCount(0);
     setCurrentStreak((prev) => prev + 1); // consecutive full passes — Dungeon's streak-gate reads this
     endCycle({ awardPoints: true }); // full pass — HV grows for all 6, +1 manual stat point banked
-    setInventory((prev) => ({ ...prev, mysteryBoxes: prev.mysteryBoxes + 1 }));
+    setInventory((prev) => ({ ...prev, mysteryBoxes: prev.mysteryBoxes + 1, gold: prev.gold + 50 }));
     setDailyQuestsDoneTag(true); // OneSignal — same point the app detects "all done for today"
     setQuestCompletePopup({
       type: "Daily Quest",
       label: null,
-      lines: [`+${gainedXp} XP`, "+1 Mystery Box"],
+      lines: [`+${gainedXp} XP`, "+50 Gold", "+1 Mystery Box"],
     });
   }
 
@@ -6031,6 +6592,11 @@ function SystemEngine() {
         <div className="mono text-[10px] text-[#8B94A3] mt-1">
           {missCount} consecutive miss{missCount !== 1 ? "es" : ""}
         </div>
+        {penaltyQueue.length > 1 && (
+          <div className="mono text-[10px] mt-1" style={{ color: "#F2A93B" }}>
+            Penalties remaining: {penaltyQueue.length - 1}
+          </div>
+        )}
 
         <div className="mt-6 border border-[#2A1518] bg-[#160D0F] rounded-md px-6 py-5 max-w-sm w-full">
           <div className="flex items-center justify-center gap-2 mb-2">
@@ -6639,7 +7205,13 @@ function SystemEngine() {
           Zone. Everything else stays visible underneath but non-interactive. Only the
           focused quest and Inventory (toggled via urgentPopupView) are reachable. Persists
           until the quest completes, fails (timer runs out), or a debug reset clears it. */}
-      {focusedUrgentQuest && (() => {
+      {/* Suppressed while an Emergency Quest is focused — Emergency takes priority since
+          it's the higher-stakes system (failure locks the app via the penalty queue).
+          Both being active simultaneously is rare (Emergency rolling first each cycle
+          means Urgent usually doesn't even get a chance to fire the same cycle), but an
+          Urgent quest already active from a PREVIOUS cycle could still overlap with a
+          freshly-fired Emergency one, so this guard matters. */}
+      {focusedUrgentQuest && !focusedEmergencyQuest && (() => {
         const domain = DOMAINS.find((d) => d.key === focusedUrgentQuest.domain);
         const severityColor =
           focusedUrgentQuest.severity === "severe"
@@ -6774,6 +7346,184 @@ function SystemEngine() {
                     inventory.hvCatalysts === 0 &&
                     inventory.gold === 0 && (
                       <div className="mono text-[10px]" style={{ color: "#5A6272" }}>
+                        Inventory is empty.
+                      </div>
+                    )}
+                </>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Emergency Quest modal — same shell as Urgent above (severity badge, domain,
+          label, countdown, RESOLVE/INVENTORY), but red accent throughout, a stationary
+          siren/beacon icon (not rotating), and a flashing icon+label + pulsing glow —
+          visual severity signal for "failure locks the app," unlike Urgent's no-penalty
+          failure. Flash is a gentle opacity fade (1 -> 0.35 -> 1, ease-in-out), NOT a
+          hard strobe — photosensitivity consideration from the spec. */}
+      {focusedEmergencyQuest && (() => {
+        const domain = DOMAINS.find((d) => d.key === focusedEmergencyQuest.domain);
+        return (
+          <div
+            className="fixed inset-0 flex items-center justify-center z-40 p-4"
+            style={{ backgroundColor: "rgba(0,0,0,0.85)" }}
+          >
+            <style>{`
+              @keyframes emergencyFlash {
+                0%, 100% { opacity: 1; }
+                50% { opacity: 0.35; }
+              }
+              @keyframes emergencyGlow {
+                0%, 100% { opacity: 0.15; transform: scale(0.94); }
+                50% { opacity: 0.45; transform: scale(1.06); }
+              }
+              .emergency-flash { animation: emergencyFlash 1.2s ease-in-out infinite; }
+              .emergency-glow { animation: emergencyGlow 1.6s ease-in-out infinite; }
+            `}</style>
+            <div
+              className="rounded-md px-6 py-5 max-w-sm w-full relative overflow-hidden"
+              style={{ border: "1px solid #E5484D", backgroundColor: "#12151C" }}
+            >
+              {/* Pulsing red radial glow behind the header — loosely synced with the
+                  flash (different cycle length on purpose, 1.6s vs 1.2s, so they drift
+                  in and out of phase rather than looking mechanically locked together). */}
+              <div
+                className="emergency-glow absolute pointer-events-none"
+                style={{
+                  top: "-40px",
+                  left: "50%",
+                  transform: "translateX(-50%)",
+                  width: "260px",
+                  height: "160px",
+                  background: "radial-gradient(ellipse at center, rgba(229,72,77,0.6) 0%, rgba(229,72,77,0) 70%)",
+                }}
+              />
+
+              <button
+                onClick={() => setShowDebug((s) => !s)}
+                className="mono text-[9px] px-2 py-1 rounded transition absolute top-4 right-4 z-10"
+                style={{ border: "1px solid #1E2430", color: "#5A6272" }}
+              >
+                DEBUG
+              </button>
+              {showDebug && (
+                <div
+                  className="absolute top-12 right-4 rounded-md px-3 py-2 z-10"
+                  style={{ border: "1px solid #2A2010", backgroundColor: "#161206" }}
+                >
+                  {!resetArmed ? (
+                    <button
+                      onClick={() => setResetArmed(true)}
+                      className="mono text-[10px] px-3 py-1.5 rounded transition whitespace-nowrap"
+                      style={{ border: "1px solid #E5484D", color: "#E5484D" }}
+                    >
+                      RESET ALL PROGRESS
+                    </button>
+                  ) : (
+                    <div className="flex flex-col gap-1.5">
+                      <span className="mono text-[9px] whitespace-nowrap" style={{ color: "#E5484D" }}>
+                        Wipes save + all state. Confirm?
+                      </span>
+                      <div className="flex gap-1.5">
+                        <button
+                          onClick={debugReset}
+                          className="mono text-[10px] px-2 py-1 rounded"
+                          style={{
+                            border: "1px solid #E5484D",
+                            backgroundColor: "#E5484D",
+                            color: "#0B0D12",
+                          }}
+                        >
+                          YES
+                        </button>
+                        <button
+                          onClick={() => setResetArmed(false)}
+                          className="mono text-[10px] px-2 py-1 rounded"
+                          style={{ border: "1px solid #2A3140", color: "#D6DCE5" }}
+                        >
+                          CANCEL
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {emergencyPopupView === "quest" ? (
+                <>
+                  <div className="emergency-flash flex items-center gap-2 mb-3 relative z-10">
+                    {/* Stationary siren/beacon — dome + base + light, not rotating. */}
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                      <path d="M12 4a6 6 0 0 1 6 6v4H6v-4a6 6 0 0 1 6-6z" fill="#E5484D" />
+                      <rect x="4" y="14" width="16" height="3" rx="1" fill="#E5484D" />
+                      <circle cx="12" cy="4" r="1.5" fill="#E5484D" />
+                    </svg>
+                    <span className="mono text-xs tracking-widest" style={{ color: "#E5484D" }}>
+                      EMERGENCY QUEST
+                      {activeEmergencyQuests.length > 1 ? ` (1 of ${activeEmergencyQuests.length})` : ""}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2 mb-2 relative z-10">
+                    <span
+                      className="mono text-[9px] tracking-widest px-1.5 py-0.5 rounded"
+                      style={{ color: "#E5484D", border: "1px solid #E5484D" }}
+                    >
+                      {focusedEmergencyQuest.severity.toUpperCase()}
+                    </span>
+                    <span className="mono text-[10px] tracking-wide" style={{ color: domain.color }}>
+                      {domain.label}
+                    </span>
+                  </div>
+
+                  <div className="text-sm mb-4 relative z-10" style={{ color: "#EDEFF3" }}>
+                    {focusedEmergencyQuest.label}
+                  </div>
+
+                  <div className="mono text-xs mb-4 relative z-10" style={{ color: "#E5484D" }}>
+                    {formatCountdown(emergencyTimeLeft)} remaining — failure locks the app
+                  </div>
+
+                  <div className="flex gap-2 flex-wrap relative z-10">
+                    <button
+                      onClick={() => resolveEmergencyQuest(focusedEmergencyQuest)}
+                      className="mono text-xs px-4 py-2 rounded transition"
+                      style={{ border: "1px solid #3DDBD9", color: "#3DDBD9" }}
+                    >
+                      RESOLVE
+                    </button>
+                    <button
+                      onClick={() => setEmergencyPopupView("inventory")}
+                      className="mono text-xs px-4 py-2 rounded transition"
+                      style={{ border: "1px solid #2A3140", color: "#D6DCE5" }}
+                    >
+                      INVENTORY
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between mb-3 relative z-10">
+                    <span className="mono text-xs tracking-widest" style={{ color: "#8B94A3" }}>
+                      INVENTORY
+                    </span>
+                    <button
+                      onClick={() => setEmergencyPopupView("quest")}
+                      className="mono text-[10px] px-3 py-1.5 rounded transition"
+                      style={{ border: "1px solid #2A3140", color: "#D6DCE5" }}
+                    >
+                      BACK
+                    </button>
+                  </div>
+                  <div className="relative z-10">{renderInventoryPanel()}</div>
+                  {inventory.mysteryBoxes === 0 &&
+                    inventory.teleportStones === 0 &&
+                    inventory.bonusStatPoints === 0 &&
+                    inventory.xpBoosters === 0 &&
+                    inventory.hvCatalysts === 0 &&
+                    inventory.gold === 0 && (
+                      <div className="mono text-[10px] relative z-10" style={{ color: "#5A6272" }}>
                         Inventory is empty.
                       </div>
                     )}
@@ -7282,14 +8032,18 @@ function SystemEngine() {
       <div className="border border-[#1E2430] bg-[#12151C] rounded-md p-4 mt-4">
         <div className="mono text-xs tracking-widest text-[#8B94A3] mb-1">DUNGEON</div>
         <div className="mono text-[9px] mb-3" style={{ color: "#5A6272" }}>
-          Streak: {currentStreak}d · Keys: {inventory.dungeonKeys} · Fatigue: {Math.round(currentFatigue)}/100
+          Streak: {currentStreak}d · Universal Keys: {inventory.dungeonKeys} · Fatigue:{" "}
+          {Math.round(currentFatigue)}/100
           {currentFatigue > 80 && <span style={{ color: "#E5484D" }}> — locked, too fatigued</span>}
         </div>
         <div className="space-y-2">
           {DOMAINS.map((d) => (
             <div key={d.key} className="mb-1">
               <div className="mono text-[10px] mb-1" style={{ color: d.color }}>
-                {DUNGEON_LOCATIONS[d.key]}
+                {DUNGEON_LOCATIONS[d.key]}{" "}
+                <span style={{ color: "#5A6272" }}>
+                  (Keys: {inventory.domainKeys[d.key] || 0} + {inventory.dungeonKeys} universal)
+                </span>
               </div>
               <div className="flex gap-1.5">
                 {DUNGEON_TIERS.map((tier) => {
@@ -7350,6 +8104,30 @@ function SystemEngine() {
           Today's listing rerolls at the daily reset — name, tier, and bonus % are
           fixed until then. Equip/unequip owned gear from the Gear tab.
         </div>
+        <div className="mono text-[10px] tracking-widest text-[#8B94A3] mb-2 pt-2 mt-3 border-t border-[#1E2430]">
+          DUNGEON KEYS
+        </div>
+        {renderKeyShopLine(
+          "Universal Key",
+          "any dungeon",
+          UNIVERSAL_KEY_SHOP_COST,
+          keyPurchasesToday.universal,
+          buyUniversalKey
+        )}
+        {DOMAINS.map((d) =>
+          renderKeyShopLine(
+            `${DUNGEON_LOCATIONS[d.key]} Key`,
+            `${DUNGEON_LOCATIONS[d.key]} only`,
+            DOMAIN_KEY_SHOP_COST,
+            keyPurchasesToday[d.key] || 0,
+            () => buyDomainKey(d.key)
+          )
+        )}
+        <div className="mono text-[9px] text-[#5A6272] mt-1">
+          Static listing — doesn't rotate with the gear reroll. Domain keys are spent
+          before universal keys when entering their matching dungeon. Purchase caps
+          reset daily alongside the gear reroll.
+        </div>
       </div>
         </>
       )}
@@ -7379,7 +8157,18 @@ function SystemEngine() {
               </div>
             </div>
             <button
-              onClick={() => (pushOptedIn ? disablePushNotifications() : enablePushNotifications())}
+              onClick={() => {
+                // TEMP DEBUG — remove after diagnosing toggle issue
+                try {
+                  if (pushOptedIn) {
+                    disablePushNotifications();
+                  } else {
+                    enablePushNotifications();
+                  }
+                } catch (err) {
+                  alert("DEBUG: Toggle error — " + err.message);
+                }
+              }}
               className="mono text-[10px] px-3 py-1.5 rounded border shrink-0 transition"
               style={{
                 borderColor: pushOptedIn ? "#3DDBD9" : "#2A3140",
@@ -7430,6 +8219,57 @@ function SystemEngine() {
             </div>
           )}
 
+          {/* ============ QUESTS SECTION ============ */}
+          <div className="mt-4 pt-3 border-t border-[#2A2010]">
+            <div className="mono text-[10px] tracking-widest text-[#F2A93B] mb-2">QUESTS</div>
+          </div>
+
+          {/* Force triggers — bypass stagnation/neglect gating (and the chance roll)
+              entirely, firing regardless of current state. Picks a random domain/severity
+              rather than requiring the real condition to actually be met, since the whole
+              point is testing the quest/modal/reward flow on demand. */}
+          <div className="mt-2">
+            <div className="mono text-[10px] text-[#8B94A3] mb-2">FORCE TRIGGER</div>
+            <div className="flex gap-1.5 flex-wrap">
+              <button
+                onClick={() => {
+                  const d = DOMAINS[Math.floor(Math.random() * DOMAINS.length)];
+                  const severities = ["mild", "moderate", "severe"];
+                  const severity = severities[Math.floor(Math.random() * severities.length)];
+                  const pool = URGENT_POOL[d.key].filter((q) => q.severity === severity);
+                  if (pool.length === 0) return;
+                  const chosen = pool[Math.floor(Math.random() * pool.length)];
+                  setActiveUrgentQuests((prev) => [
+                    ...prev,
+                    { id: `${d.key}-${Date.now()}-${Math.random()}`, domain: d.key, label: chosen.label, severity },
+                  ]);
+                  pushLog([`[Debug]: Forced Urgent Quest — ${d.label}.`, `[Debug]: ${chosen.label}`]);
+                }}
+                className="mono text-[9px] px-2 py-1 rounded border border-[#2A3140] hover:border-[#3DDBD9] transition text-[#D6DCE5]"
+              >
+                Force Urgent Quest
+              </button>
+              <button
+                onClick={() => {
+                  const d = DOMAINS[Math.floor(Math.random() * DOMAINS.length)];
+                  const severities = ["mild", "moderate", "severe"];
+                  const severity = severities[Math.floor(Math.random() * severities.length)];
+                  const pool = EMERGENCY_POOL[d.key].filter((q) => q.severity === severity);
+                  if (pool.length === 0) return;
+                  const chosen = pool[Math.floor(Math.random() * pool.length)];
+                  setActiveEmergencyQuests((prev) => [
+                    ...prev,
+                    { id: `${d.key}-${Date.now()}-${Math.random()}`, domain: d.key, label: chosen.label, severity },
+                  ]);
+                  pushLog([`[Debug]: Forced Emergency Quest — ${d.label}.`, `[Debug]: ${chosen.label}`]);
+                }}
+                className="mono text-[9px] px-2 py-1 rounded border border-[#E5484D] hover:bg-[#160D0F] transition text-[#E5484D]"
+              >
+                Force Emergency Quest
+              </button>
+            </div>
+          </div>
+
           {/* Run the ACTUAL trigger against real, currently-committed game state — not a
               synthetic scenario. If it fires, a real Urgent Quest appears, same as if a
               real cycle had just ended. */}
@@ -7444,19 +8284,17 @@ function SystemEngine() {
               )}
             </div>
             {(() => {
-              const eligible = getCurrentEligibleDomains();
+              const eligible = getCurrentEligibleUrgentDomains();
               return (
                 <>
                   <div className="mono text-[9px] text-[#5A6272] mb-2 space-y-0.5">
                     {eligible.length === 0 ? (
-                      <div>No domain currently eligible (nothing past a neglect/stagnation threshold).</div>
+                      <div>No domain currently eligible (nothing past a stagnation threshold).</div>
                     ) : (
                       eligible.map((e) => (
                         <div key={e.domain.key} className="flex justify-between">
                           <span style={{ color: e.domain.color }}>{e.domain.label}</span>
-                          <span>
-                            {e.severity} ({e.reason})
-                          </span>
+                          <span>{e.severity} (stagnation)</span>
                         </div>
                       ))
                     )}
@@ -7467,8 +8305,10 @@ function SystemEngine() {
                       {totalCyclesCompleted !== 1 ? "s" : ""} completed
                     </div>
                     <div className="text-[#8B94A3]">
-                      Neglect = level-up checkpoints without a stat point (thresholds 3/5/8).
-                      Stagnation = Main Quests completed vs. the domain in the lead (thresholds 2/4/6).
+                      Urgent Quest triggers on Stagnation only (Main Quests completed vs.
+                      the domain in the lead, thresholds 2/4/6). Emergency Quest triggers
+                      on Neglect only (level-up checkpoints without a stat point,
+                      thresholds 3/5/8) — see the Emergency section below.
                     </div>
                     {DOMAINS.map((d) => (
                       <div key={d.key} className="flex justify-between">
@@ -7536,6 +8376,7 @@ function SystemEngine() {
               </button>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
+              <span className="mono text-[9px] text-[#5A6272]">Stat Point Domain:</span>
               <select
                 value={debugStatDomain}
                 onChange={(e) => setDebugStatDomain(e.target.value)}
@@ -7650,31 +8491,14 @@ function SystemEngine() {
             </div>
           </div>
 
-          {/* Encounter test trigger — forces the popup immediately, bypassing the real
-              10% roll and the Manual/Urgent/Main completion requirement, purely so the
-              engage/decline/resolve flow can be tested without grinding for a real one. */}
-          <div className="mt-3 pt-3 border-t border-[#2A2010]">
-            <div className="mono text-[10px] text-[#8B94A3] mb-2">ENCOUNTER TEST TRIGGER</div>
-            <div className="flex gap-1.5 flex-wrap">
-              {ENCOUNTER_POOL.map((e) => (
-                <button
-                  key={e.id}
-                  onClick={() => setActiveEncounter({ encounter: e, result: null })}
-                  className="mono text-[9px] px-2 py-1 rounded border border-[#2A3140] hover:border-[#3DDBD9] transition text-[#D6DCE5]"
-                >
-                  {e.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
           {/* Dungeon test trigger — reuses the domain selector from the Level/Stat
               debug tool above. Forces a real run via startDungeonRun's debugForced
               path: bypasses gates and key cost entirely, but still runs the actual
               room/resolve/final-room/reward logic, so the full flow can be tested. */}
           <div className="mt-3 pt-3 border-t border-[#2A2010]">
             <div className="mono text-[10px] text-[#8B94A3] mb-2">
-              DUNGEON TEST TRIGGER — domain: {DOMAINS.find((d) => d.key === debugStatDomain)?.label}
+              DUNGEON TEST TRIGGER — Dungeon Domain: {DOMAINS.find((d) => d.key === debugStatDomain)?.label}{" "}
+              (shares the Stat Point Domain selector above)
             </div>
             <div className="flex gap-1.5 flex-wrap">
               {DUNGEON_TIERS.map((t) => (
@@ -7689,15 +8513,20 @@ function SystemEngine() {
             </div>
           </div>
 
+          {/* ============ LOOT SECTION ============ */}
+          <div className="mt-4 pt-3 border-t border-[#2A2010]">
+            <div className="mono text-[10px] tracking-widest text-[#F2A93B] mb-2">LOOT</div>
+          </div>
+
           {/* Debug Lootbox Triggers — 4 on-demand rolls, each bypassing its normal
               probability GATE while keeping the normal weighted odds for WHAT comes
               out (except #4, which is fully forced). See grantMysteryBox/
               grantEquipmentDropRoll (extracted from their maybeGrant* gates
               specifically for this), and rollDungeonLootbox/rollDungeonNamedItem.
-              Dungeon selection reuses the domain selector from the Level/Stat debug
-              tool above (debugStatDomain) rather than a second, redundant dropdown. */}
-          <div className="mt-3 pt-3 border-t border-[#2A2010]">
-            <div className="mono text-[10px] text-[#8B94A3] mb-2">DEBUG LOOTBOX TRIGGERS</div>
+              Dungeon selection reuses the Stat Point Domain selector from the
+              Quests section above (debugStatDomain) rather than a second, redundant
+              dropdown — labeled "Dungeon Domain" here per the naming disambiguation. */}
+          <div className="mt-2">
             <div className="flex gap-1.5 flex-wrap mb-2">
               <button
                 onClick={grantMysteryBox}
@@ -7713,7 +8542,8 @@ function SystemEngine() {
               </button>
             </div>
             <div className="mono text-[9px] text-[#8B94A3] mb-1">
-              Dungeon: {DUNGEON_LOCATIONS[debugStatDomain]} (uses domain selector above)
+              Dungeon Domain: {DUNGEON_LOCATIONS[debugStatDomain]} (shares the Stat Point
+              Domain selector in Quests above)
             </div>
             <div className="flex gap-1.5 flex-wrap">
               <button
@@ -7735,6 +8565,40 @@ function SystemEngine() {
                 className="mono text-[9px] px-2 py-1 rounded border border-[#2A3140] hover:border-[#3DDBD9] transition text-[#D6DCE5]"
               >
                 Named Drop (forced)
+              </button>
+            </div>
+          </div>
+
+          {/* ============ ENCOUNTERS SECTION ============ */}
+          <div className="mt-4 pt-3 border-t border-[#2A2010]">
+            <div className="mono text-[10px] tracking-widest text-[#F2A93B] mb-2">ENCOUNTERS</div>
+          </div>
+
+          {/* Collapsed from a full button-per-encounter list into one dropdown + a single
+              Trigger button. Forces the popup immediately, bypassing the real 10% roll and
+              the Manual/Urgent/Main completion requirement, purely so the engage/decline/
+              resolve flow can be tested without grinding for a real one. */}
+          <div className="mt-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <select
+                value={debugEncounterId}
+                onChange={(e) => setDebugEncounterId(e.target.value)}
+                className="mono text-[10px] bg-[#0F1218] border border-[#1E2430] rounded px-2 py-1 text-[#D6DCE5] focus:outline-none focus:border-[#3DDBD9]"
+              >
+                {ENCOUNTER_POOL.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={() => {
+                  const encounter = ENCOUNTER_POOL.find((e) => e.id === debugEncounterId);
+                  if (encounter) setActiveEncounter({ encounter, result: null });
+                }}
+                className="mono text-[9px] px-3 py-1.5 rounded border border-[#2A3140] hover:border-[#3DDBD9] transition text-[#D6DCE5]"
+              >
+                TRIGGER
               </button>
             </div>
           </div>
@@ -7822,10 +8686,19 @@ function SystemEngine() {
             )}
           </div>
 
+          {/* ============ VERSION / PATCH NOTES SECTION ============ */}
+          <div className="mt-4 pt-3 border-t border-[#2A2010]">
+            <div className="mono text-[10px] tracking-widest text-[#F2A93B] mb-2">
+              VERSION / PATCH NOTES
+            </div>
+          </div>
+
           {/* Version Number & Patch Notes Display — queued feature, locked. Debug tab
               only, read-only. APP_VERSION is updated manually each build; PATCH_NOTES_TEXT
-              is the full embedded patch-notes.md content (see constants near top of file). */}
-          <div className="mt-3 pt-3 border-t border-[#2A2010]">
+              is the full embedded patch-notes.md content (see constants near top of file).
+              No changes here per the Debug Tab Overhaul spec — stays exactly as-is, not
+              grouped into dropdown style like the other sections above. */}
+          <div className="mt-2">
             <div className="mono text-[10px] text-[#8B94A3] mb-2">
               BUILD VERSION: <span style={{ color: "#3DDBD9" }}>{APP_VERSION}</span>
             </div>

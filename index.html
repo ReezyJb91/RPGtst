@@ -234,7 +234,7 @@ const GENDERS = ["Male", "Female", "Non-binary"];
 // PATCH_NOTES_TEXT is the full patch-notes.md content, embedded as a read-only
 // string so it can be displayed directly in-app without a separate file fetch.
 // Keep this in sync with the real patch-notes.md file shipped alongside each build.
-const APP_VERSION = "v31 (TEMP DEBUG)";
+const APP_VERSION = "v32 (TEMP DEBUG)";
 const PATCH_NOTES_TEXT = `# The System — Patch Notes
 
 Covers all builds completed in this chat, starting from the uploaded baseline
@@ -242,6 +242,42 @@ Covers all builds completed in this chat, starting from the uploaded baseline
 corresponds to the JSX artifact number shipped at that point; \`the-system-app.html\`
 was kept in lockstep from v20 onward (v19's Quick Start was JSX-only for one turn
 before being ported back into the HTML in v20).
+
+---
+
+## v32 (TEMP DEBUG carried over — see note below)
+
+**NOTE:** the notification-toggle \`alert()\` debug instrumentation from v29 is
+still live in the code (confirmed still unresolved — pushed off intentionally
+for now), so the version string still carries the TEMP DEBUG flag. Everything
+else below is a normal feature batch.
+
+**Domain-Specific Shop Keys — Updated (supersedes v31's version)**
+- Universal Dungeon Key Shop price raised 150 → 250 Gold. Still a static
+  line (not part of the daily gear rotation), still capped 3 purchases/day,
+  same reset boundary as the Shop gear reroll. Mystery Box remains
+  unaffected (8% roll, uncapped).
+- **Domain-specific keys now ROTATE instead of all 6 being listed at once.**
+  Only ONE domain-specific key type is shown in the Shop per day, rerolling
+  on the same daily boundary as the gear reroll. New \`shopDomainKeyToday\`
+  state (persisted, migrated on load) tracks which one; a new
+  \`rollShopDomainKey(excludeKey)\` helper picks randomly among the other 5
+  domains — **no-repeat rule**: yesterday's pick is always excluded from the
+  roll pool before picking today's.
+- Domain key price (110g) and per-type daily cap (3) unchanged. Spend
+  priority unchanged: entering a dungeon still spends that dungeon's
+  matching domain-specific keys first (from whatever's been purchased and
+  banked, regardless of what's rotating in the Shop today), falling back to
+  the universal pool only once exhausted.
+- Inventory still tracks 7 key counters total (1 universal + 6
+  domain-specific) — rotation only affects what's *purchasable on a given
+  day*, not what's held or spendable; previously-bought domain keys remain
+  usable indefinitely regardless of the day's rotation.
+- Shop tab UI updated: the "DUNGEON KEYS" section now shows exactly 2 lines
+  (Universal + today's rotating domain key) instead of 7.
+- Reference (unchanged, context only): Dungeon key cost per tier — Novice 1
+  / Adept 2 / Elite 3. Gold reward ranges per tier — Novice 50–150 / Adept
+  300–500 / Elite 1000–2000.
 
 ---
 
@@ -1430,7 +1466,7 @@ const DUNGEON_LOCATIONS = {
 // payment for their one matching dungeon (see DUNGEON_LOCATIONS above for the pairing).
 // Both caps reset on the same daily cycle as dailies/shop gear reroll — see the
 // dailyQuestDeadline rollover effect, which resets keyPurchasesToday alongside it.
-const UNIVERSAL_KEY_SHOP_COST = 150;
+const UNIVERSAL_KEY_SHOP_COST = 250;
 const DOMAIN_KEY_SHOP_COST = 110;
 const KEY_DAILY_PURCHASE_CAP = 3;
 // Fatigue — uniform per "phase reached", not per exact outcome: Complete and Partial
@@ -1880,6 +1916,15 @@ function rollShopGearStock(playerLevel) {
     stock[slot] = equipmentCreateItem(slot, tier, name);
   });
   return stock;
+}
+
+// Shop's rotating domain-specific key line — one domain key type shown per day, never
+// the same one two days running. excludeKey is yesterday's pick (or null on first
+// roll); picks randomly among the remaining 5 domains. Rotates on the same daily
+// boundary as rollShopGearStock — see the dailyQuestDeadline rollover effect.
+function rollShopDomainKey(excludeKey) {
+  const pool = DOMAINS.map((d) => d.key).filter((k) => k !== excludeKey);
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 
 // Buying takes a fresh COPY of today's stock listing (new id) rather than moving the
@@ -3492,6 +3537,10 @@ function SystemEngine() {
   // day (see rollShopGearStock and the dailyQuestDeadline effect). null per slot until
   // the init effect below fills it in on first load.
   const [shopGearStock, setShopGearStock] = useState({ weapon: null, armor: null, trinket: null });
+  // Today's rotating domain-specific key type (one shown at a time in the Shop) — null
+  // until the init effect below rolls the first one. Rerolls on the same daily boundary
+  // as shopGearStock, always excluding yesterday's pick (see rollShopDomainKey).
+  const [shopDomainKeyToday, setShopDomainKeyToday] = useState(null);
   // Shop purchase flow — tapping a gear item no longer buys immediately. It opens a
   // confirmation step (gearPurchaseConfirm), and only on Confirm does the actual
   // purchase happen, followed by a completion acknowledgment (gearPurchaseComplete).
@@ -4720,6 +4769,7 @@ function SystemEngine() {
           if (s.gearInventory) setGearInventory(s.gearInventory);
           if (s.equipment) setEquipment({ weapon: null, armor: null, trinket: null, ...s.equipment });
           if (s.shopGearStock) setShopGearStock({ weapon: null, armor: null, trinket: null, ...s.shopGearStock });
+          if (s.shopDomainKeyToday) setShopDomainKeyToday(s.shopDomainKeyToday);
           // Real-clock daily cycle state — now persisted so it survives a reload within
           // the same real day, and so a missed midnight can be caught up on next open.
           if (s.checked) setChecked(s.checked);
@@ -4786,6 +4836,7 @@ function SystemEngine() {
       gearInventory,
       equipment,
       shopGearStock,
+      shopDomainKeyToday,
       checked,
       questComplete,
       dailyQuestDeadline,
@@ -4827,6 +4878,7 @@ function SystemEngine() {
     gearInventory,
     equipment,
     shopGearStock,
+    shopDomainKeyToday,
     checked,
     questComplete,
     dailyQuestDeadline,
@@ -4911,6 +4963,7 @@ function SystemEngine() {
     setGearInventory([]);
     setEquipment({ weapon: null, armor: null, trinket: null });
     setShopGearStock(rollShopGearStock(1)); // level just reset to 1 above — pass explicitly, not the stale closed-over `level`
+    setShopDomainKeyToday(rollShopDomainKey(null));
     setAccessoryTier(0);
     setAuraTier(0);
     setChecked({});
@@ -4950,6 +5003,16 @@ function SystemEngine() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, shopGearStock.weapon]);
 
+  // Domain key rotation init — rolls the first domain-specific key type the first time
+  // there's none set yet (brand-new save, or a debug reset). No previous day to exclude
+  // on this first roll, so all 6 domains are eligible.
+  useEffect(() => {
+    if (loaded && !shopDomainKeyToday) {
+      setShopDomainKeyToday(rollShopDomainKey(null));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, shopDomainKeyToday]);
+
   // Fires whenever real midnight has passed relative to the current cycle's deadline —
   // whether that's because the app was open and a tick just crossed it live, or because
   // the app was closed over midnight and this is the first render after reopening (same
@@ -4981,6 +5044,10 @@ function SystemEngine() {
     // the penaltyActive-guarded branch above rather than its own independent day-
     // counter, so it turns over exactly when the rest of the daily cycle does.
     setShopGearStock(rollShopGearStock(level));
+    // Domain key rotation — one new domain-specific key type per day, excluding
+    // yesterday's pick (no-repeat rule). Functional update so it reads the actual
+    // current value rather than a possibly-stale closed-over one.
+    setShopDomainKeyToday((prev) => rollShopDomainKey(prev));
     // Key purchase caps (universal + 6 domain-specific) reset on this exact same
     // real-midnight boundary, same reasoning as the Shop gear reroll above.
     setKeyPurchasesToday({
@@ -8109,24 +8176,25 @@ function SystemEngine() {
         </div>
         {renderKeyShopLine(
           "Universal Key",
-          "any dungeon",
+          "any dungeon — static, always available",
           UNIVERSAL_KEY_SHOP_COST,
           keyPurchasesToday.universal,
           buyUniversalKey
         )}
-        {DOMAINS.map((d) =>
+        {shopDomainKeyToday &&
           renderKeyShopLine(
-            `${DUNGEON_LOCATIONS[d.key]} Key`,
-            `${DUNGEON_LOCATIONS[d.key]} only`,
+            `${DUNGEON_LOCATIONS[shopDomainKeyToday]} Key`,
+            `${DUNGEON_LOCATIONS[shopDomainKeyToday]} only — today's rotation`,
             DOMAIN_KEY_SHOP_COST,
-            keyPurchasesToday[d.key] || 0,
-            () => buyDomainKey(d.key)
-          )
-        )}
+            keyPurchasesToday[shopDomainKeyToday] || 0,
+            () => buyDomainKey(shopDomainKeyToday)
+          )}
         <div className="mono text-[9px] text-[#5A6272] mt-1">
-          Static listing — doesn't rotate with the gear reroll. Domain keys are spent
-          before universal keys when entering their matching dungeon. Purchase caps
-          reset daily alongside the gear reroll.
+          Universal Key is a static listing — always available, doesn't rotate. The
+          domain-specific key rotates daily (never repeating yesterday's pick) and is
+          Shop-exclusive — no other source. Domain keys are spent before universal keys
+          when entering their matching dungeon. Purchase caps reset daily alongside the
+          gear reroll.
         </div>
       </div>
         </>

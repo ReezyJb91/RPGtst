@@ -234,7 +234,7 @@ const GENDERS = ["Male", "Female", "Non-binary"];
 // PATCH_NOTES_TEXT is the full patch-notes.md content, embedded as a read-only
 // string so it can be displayed directly in-app without a separate file fetch.
 // Keep this in sync with the real patch-notes.md file shipped alongside each build.
-const APP_VERSION = "v33 (TEMP DEBUG)";
+const APP_VERSION = "v35 (TEMP DEBUG)";
 const PATCH_NOTES_TEXT = `# The System — Patch Notes
 
 Covers all builds completed in this chat, starting from the uploaded baseline
@@ -242,6 +242,106 @@ Covers all builds completed in this chat, starting from the uploaded baseline
 corresponds to the JSX artifact number shipped at that point; \`the-system-app.html\`
 was kept in lockstep from v20 onward (v19's Quick Start was JSX-only for one turn
 before being ported back into the HTML in v20).
+
+---
+
+## v35 (TEMP DEBUG carried over — see note below)
+
+**NOTE:** the notification-toggle \`alert()\` debug instrumentation from v29 is
+still live in the code (confirmed still unresolved — pushed off intentionally
+for now), so the version string still carries the TEMP DEBUG flag. Everything
+else below is a normal feature batch.
+
+**Urgent Quest persistence bug fixed**
+- \`urgentTimeLeft\` and \`urgentQuestsThisCycle\` were never wired into
+  save/load — only \`activeUrgentQuests\` was. Flagged at the end of v34 while
+  fixing the identical bug for Emergency Quest; fixed now the same way:
+  both restored on load, added to the save-state object literal, and added
+  to the auto-save \`useEffect\` dependency array. Urgent and Emergency Quest
+  persistence are now fully symmetric — all 3 fields wired for both quest
+  types.
+
+---
+
+## v34 (TEMP DEBUG carried over — see note below)
+
+**NOTE:** the notification-toggle \`alert()\` debug instrumentation from v29 is
+still live in the code (confirmed still unresolved — pushed off intentionally
+for now), so the version string still carries the TEMP DEBUG flag. Everything
+else below is a normal feature batch (items 10–14 from the queued spec).
+
+**Dungeon Key Confirmation Screen**
+- New confirmation screen shown right before a dungeon run starts, whenever
+  a key would actually be consumed — i.e. every non-debug entry (the Debug
+  tab's force-trigger buttons skip key consumption entirely and were
+  already unaffected). Shows the dungeon + tier selected, the exact key
+  breakdown that will be spent (domain-specific first, universal covering
+  the rest — matches the existing spend-priority logic exactly, computed
+  via a new \`dungeonKeySpendPreview\` helper), and the remaining count for
+  each key type after the spend. Confirm hands off to the existing,
+  unchanged \`startDungeonRun\` key-consumption + entry logic; Cancel returns
+  to the Dungeon select screen with zero changes.
+
+**Emergency Quest Fixes — Persistence Bug + Modal Copy**
+- **Persistence bug fixed:** \`activeEmergencyQuests\`, \`emergencyTimeLeft\`,
+  and \`emergencyQuestsThisCycle\` were declared with \`useState\` but never
+  wired into load/save — an active Emergency Quest was silently lost on
+  app close/reopen. Now restored on load, included in the save-state object
+  literal, and included in the auto-save \`useEffect\` dependency array,
+  matching Urgent Quest's existing pattern for \`activeUrgentQuests\`.
+- **Flagged, not fixed this batch:** while wiring this up, confirmed that
+  Urgent Quest's own \`urgentTimeLeft\` / \`urgentQuestsThisCycle\` are NOT
+  actually persisted anywhere in the file either — only \`activeUrgentQuests\`
+  is. The queued spec's note that Urgent was "already fully wired in all 3
+  spots" doesn't hold up under a direct check. Worth a follow-up pass on
+  Urgent's own persistence if that matters for real play sessions spanning
+  an app close/reopen mid-countdown.
+- **Modal copy added:** new subtext line under the Emergency Quest modal's
+  countdown timer — "A failure results in a penalty. Penalty for incomplete
+  daily tasks will stack." Copy only, no new mechanic; names the existing
+  \`penaltyQueue\` FIFO/append behavior that was already in place.
+
+**Main Quest Financial Encounter Item Pool — Equipment Lootbox Weight**
+- \`MAIN_QUEST_FINANCIAL_ITEM_POOL\`'s Equipment Lootbox weight raised
+  20% → 25%. The +5pt increase comes entirely out of HV Catalyst rather
+  than proportionally from all four remaining items — HV Catalyst drops
+  from 31.11% to 26.11%; Bonus Stat Point (17.78%), XP Booster (17.78%),
+  and Hairstyle Change (13.33%) are unchanged. Verified the resulting 5
+  weights sum to exactly 1.0. This breaks the pool's previous fully-
+  programmatic "no drift from the base pool" derivation for HV Catalyst
+  specifically — flagged in-code per the spec's own instruction, since
+  the other three items still derive proportionally and can't drift.
+  Base \`ENCOUNTER_ITEM_POOL\` (non-Main-Quest Financial Encounters) is
+  unchanged — still 35/20/20/15/10.
+
+**Remove HV from System Log**
+- Stripped the \`+X HV\` portion from every System Log line that had it:
+  HV Catalyst spend, Emergency Quest completion, Manual Quest completion,
+  Main Quest completion. HV is still granted mechanically in all four
+  cases — only the log text changed. Urgent Quest, Daily Quest, and
+  Dungeon Complete's log lines already had no HV text to begin with (Dungeon
+  Complete still grants no HV at all — separate known gap, unchanged).
+  This is a different UI surface than the earlier-queued "hide HV from the
+  Quest Completion popup" item — both are now in place, and they didn't
+  share a single source-of-truth string, so both needed their own fix.
+
+**Dungeon Key Purchase — Confirmation + Amount Selector**
+- Both Shop key lines (the static Universal key and the daily-rotating
+  domain-specific key) now have a quantity stepper (− / qty / +), capped at
+  that key type's remaining daily allowance (3/day, matching the existing
+  cap) rather than being locked to one-at-a-time.
+- Purchases now go through the same Confirm → Complete flow as Gear
+  purchases: tapping BUY opens a confirmation screen showing key type,
+  quantity, total cost (unit price × quantity), and the remaining daily
+  allowance after the purchase, with Confirm/Cancel buttons; Confirm then
+  shows a completion acknowledgment before returning to the Shop. The old
+  instant single-key \`buyUniversalKey\`/\`buyDomainKey\` functions were
+  replaced by this flow (\`openUniversalKeyPurchaseConfirm\`,
+  \`openDomainKeyPurchaseConfirm\`, \`confirmKeyPurchase\`,
+  \`cancelKeyPurchase\`, \`closeKeyPurchaseComplete\`).
+- Reference (unchanged, confirmed current): Universal key 250 gold, always
+  shown, cap 3/day. Domain-specific key 110 gold, one shown at a time
+  (rotates daily, no-repeat vs. previous day), cap 3/day.
 
 ---
 
@@ -1388,18 +1488,28 @@ const ENCOUNTER_ITEM_POOL = [
   { field: "equipmentLootbox", label: "Equipment Lootbox", weight: 0.10 },
 ];
 
-// Main Quest Encounter's own Financial-Win pool — same 5 items, but Equipment Lootbox's
-// weight is doubled (10% -> 20%), pulled proportionally from the other four rather than
-// just added on top (since a flat multiplier doesn't apply cleanly to an item-based
-// reward and weights must still sum to 1.0). Derived programmatically from
-// ENCOUNTER_ITEM_POOL so it can't silently drift out of sync if the base pool's weights
-// ever change. Example: hvCatalysts .35 -> .35*(0.8/0.9) = .3111.
+// Main Quest Encounter's own Financial-Win pool — same 5 items, Equipment Lootbox's
+// weight boosted from the base pool's 10% up to 25% (was 20% before this batch — see
+// patch notes). The +5pt bump from 20%->25% comes entirely out of HV Catalyst rather
+// than proportionally from all four remaining items, which is an intentional break
+// from this pool's originally fully-programmatic "no drift" design: HV Catalyst's
+// weight below is computed from its old proportional share (what it was at
+// boostedWeight=0.20, i.e. 0.3111) minus the flat 0.05 that moved to Equipment
+// Lootbox. Bonus Stat Point / XP Booster / Hairstyle Change still derive
+// proportionally from ENCOUNTER_ITEM_POOL exactly as before and land on the same
+// values they always did (0.1778 / 0.1778 / 0.1333) — only HV Catalyst is an override.
 const MAIN_QUEST_FINANCIAL_ITEM_POOL = (() => {
-  const boostedWeight = 0.20;
-  const others = ENCOUNTER_ITEM_POOL.filter((e) => e.field !== "equipmentLootbox");
+  const boostedWeight = 0.25;
+  const others = ENCOUNTER_ITEM_POOL.filter(
+    (e) => e.field !== "equipmentLootbox" && e.field !== "hvCatalysts"
+  );
+  const hvBase = ENCOUNTER_ITEM_POOL.find((e) => e.field === "hvCatalysts");
+  const oldScale = 0.8 / 0.9; // the scale factor this pool used before this batch (boostedWeight was 0.20)
+  const hvCatalystWeight = hvBase.weight * oldScale - 0.05; // 0.3111 -> 0.2611
   const othersOriginalSum = others.reduce((sum, e) => sum + e.weight, 0);
-  const scale = (1 - boostedWeight) / othersOriginalSum;
+  const scale = (1 - boostedWeight - hvCatalystWeight) / othersOriginalSum;
   return [
+    { field: "hvCatalysts", label: "HV Catalyst", weight: hvCatalystWeight },
     ...others.map((e) => ({ ...e, weight: e.weight * scale })),
     { field: "equipmentLootbox", label: "Equipment Lootbox", weight: boostedWeight },
   ];
@@ -3579,6 +3689,13 @@ function SystemEngine() {
     universal: 0,
     ...Object.fromEntries(DOMAINS.map((d) => [d.key, 0])),
   });
+  // Dungeon Key purchase — quantity selectors (one per shop line, not persisted; reset
+  // to 1 after each completed purchase) and the Confirm/Complete flow state, same shape
+  // as gearPurchaseConfirm/gearPurchaseComplete below.
+  const [universalKeyQty, setUniversalKeyQty] = useState(1);
+  const [domainKeyQty, setDomainKeyQty] = useState(1);
+  const [keyPurchaseConfirm, setKeyPurchaseConfirm] = useState(null);
+  const [keyPurchaseComplete, setKeyPurchaseComplete] = useState(null);
   const [spendBonusDomain, setSpendBonusDomain] = useState(DOMAINS[0].key);
   const [spendCatalystDomain, setSpendCatalystDomain] = useState(DOMAINS[0].key);
   const [xpBoostActive, setXpBoostActive] = useState(false);
@@ -3708,6 +3825,11 @@ function SystemEngine() {
   // implements — Resolve pool -> Regular Rooms (hidden-cost domain choices) -> Final
   // Room (hearts-based triangle) -> one of 3 outcomes.
   const [activeDungeonRun, setActiveDungeonRun] = useState(null);
+  // Dungeon Key confirmation screen — shown after tapping a tier button, before any
+  // key is actually spent or the run starts. Not persisted (ephemeral UI state, cleared
+  // on Confirm/Cancel or a fresh page load); startDungeonRun's existing key-consumption
+  // + entry logic is untouched, this only gates the call to it behind an explicit tap.
+  const [pendingDungeonEntry, setPendingDungeonEntry] = useState(null);
 
   // Debug-only input state — direct level/stat setters, so Dungeon's gates (and
   // anything else level/stat-gated) can actually be tested without grinding real XP
@@ -3973,7 +4095,7 @@ function SystemEngine() {
     const domain = DOMAINS.find((d) => d.key === spendCatalystDomain);
     setInventory((prev) => ({ ...prev, hvCatalysts: prev.hvCatalysts - 1 }));
     grantHV(spendCatalystDomain, 2);
-    pushLog([`[System]: HV Catalyst spent — ${domain.label} +2 HV.`]);
+    pushLog([`[System]: HV Catalyst spent — ${domain.label}.`]);
   }
 
   // Avatar creation is one-and-done — this is the only way to change hairstyle afterward.
@@ -4026,38 +4148,86 @@ function SystemEngine() {
   }
 
   // Universal Dungeon Key — static Shop line, always available (not part of the daily
-  // rotating gear reroll). 150g, capped 3/day; the cap resets alongside the Shop gear
-  // reroll in the dailyQuestDeadline rollover effect.
-  function buyUniversalKey() {
-    if (inventory.gold < UNIVERSAL_KEY_SHOP_COST) return;
-    if (keyPurchasesToday.universal >= KEY_DAILY_PURCHASE_CAP) return;
-    setInventory((prev) => ({
-      ...prev,
-      gold: prev.gold - UNIVERSAL_KEY_SHOP_COST,
-      dungeonKeys: prev.dungeonKeys + 1,
-    }));
-    setGoldSpentTotal((prev) => prev + UNIVERSAL_KEY_SHOP_COST);
-    setKeyPurchasesToday((prev) => ({ ...prev, universal: prev.universal + 1 }));
-    pushLog([`[System]: Purchased Dungeon Key — ${UNIVERSAL_KEY_SHOP_COST} Gold.`]);
+  // rotating gear reroll). 250g each, capped 3/day; the cap resets alongside the Shop
+  // gear reroll in the dailyQuestDeadline rollover effect. Purchase now goes through a
+  // quantity selector + Confirm/Complete flow (same pattern as Gear purchase) instead
+  // of an instant single-key buy — see openUniversalKeyPurchaseConfirm below.
+  function openUniversalKeyPurchaseConfirm() {
+    const remaining = KEY_DAILY_PURCHASE_CAP - keyPurchasesToday.universal;
+    const qty = Math.min(universalKeyQty, remaining);
+    if (qty <= 0) return;
+    const totalCost = UNIVERSAL_KEY_SHOP_COST * qty;
+    if (inventory.gold < totalCost) return;
+    setKeyPurchaseConfirm({
+      type: "universal",
+      label: "Universal Key",
+      qty,
+      unitCost: UNIVERSAL_KEY_SHOP_COST,
+      totalCost,
+      remainingAfter: remaining - qty,
+    });
   }
 
   // Domain-specific key — Shop-exclusive, no other source. 110g each, capped 3/day per
   // key type. Only spendable as entry payment for that domain's matching dungeon (see
   // DUNGEON_LOCATIONS) — spend priority (domain-specific first, universal as fallback)
-  // is handled in startDungeonRun.
-  function buyDomainKey(domainKey) {
-    if (inventory.gold < DOMAIN_KEY_SHOP_COST) return;
-    if ((keyPurchasesToday[domainKey] || 0) >= KEY_DAILY_PURCHASE_CAP) return;
-    setInventory((prev) => ({
-      ...prev,
-      gold: prev.gold - DOMAIN_KEY_SHOP_COST,
-      domainKeys: { ...prev.domainKeys, [domainKey]: (prev.domainKeys[domainKey] || 0) + 1 },
-    }));
-    setGoldSpentTotal((prev) => prev + DOMAIN_KEY_SHOP_COST);
-    setKeyPurchasesToday((prev) => ({ ...prev, [domainKey]: (prev[domainKey] || 0) + 1 }));
-    pushLog([
-      `[System]: Purchased ${DUNGEON_LOCATIONS[domainKey]} Key — ${DOMAIN_KEY_SHOP_COST} Gold.`,
-    ]);
+  // is handled in startDungeonRun. Only whichever domain is rotating today (
+  // shopDomainKeyToday) is purchasable — see rollShopDomainKey.
+  function openDomainKeyPurchaseConfirm() {
+    if (!shopDomainKeyToday) return;
+    const domainKey = shopDomainKeyToday;
+    const purchasedToday = keyPurchasesToday[domainKey] || 0;
+    const remaining = KEY_DAILY_PURCHASE_CAP - purchasedToday;
+    const qty = Math.min(domainKeyQty, remaining);
+    if (qty <= 0) return;
+    const totalCost = DOMAIN_KEY_SHOP_COST * qty;
+    if (inventory.gold < totalCost) return;
+    setKeyPurchaseConfirm({
+      type: "domain",
+      domainKey,
+      label: `${DUNGEON_LOCATIONS[domainKey]} Key`,
+      qty,
+      unitCost: DOMAIN_KEY_SHOP_COST,
+      totalCost,
+      remainingAfter: remaining - qty,
+    });
+  }
+
+  // Key Purchase flow, Cancel path: returns to the shop with zero changes, quantity
+  // selector left as the player set it (same convention as Gear's cancelGearPurchase).
+  function cancelKeyPurchase() {
+    setKeyPurchaseConfirm(null);
+  }
+
+  // Key Purchase flow, step 2 of 3: Confirm actually executes the purchase (gold
+  // deducted, keys added, daily cap counter bumped), same shape as confirmGearPurchase.
+  // Then opens step 3, the completion acknowledgment, and resets that line's quantity
+  // selector back to 1.
+  function confirmKeyPurchase() {
+    if (!keyPurchaseConfirm) return;
+    const { type, domainKey, qty, totalCost, label } = keyPurchaseConfirm;
+    if (type === "universal") {
+      setInventory((prev) => ({ ...prev, gold: prev.gold - totalCost, dungeonKeys: prev.dungeonKeys + qty }));
+      setKeyPurchasesToday((prev) => ({ ...prev, universal: prev.universal + qty }));
+      setUniversalKeyQty(1);
+    } else {
+      setInventory((prev) => ({
+        ...prev,
+        gold: prev.gold - totalCost,
+        domainKeys: { ...prev.domainKeys, [domainKey]: (prev.domainKeys[domainKey] || 0) + qty },
+      }));
+      setKeyPurchasesToday((prev) => ({ ...prev, [domainKey]: (prev[domainKey] || 0) + qty }));
+      setDomainKeyQty(1);
+    }
+    setGoldSpentTotal((prev) => prev + totalCost);
+    pushLog([`[System]: Purchased ${label} × ${qty} — ${totalCost} Gold.`]);
+    setKeyPurchaseConfirm(null);
+    setKeyPurchaseComplete({ label, qty, totalCost });
+  }
+
+  // Key Purchase flow, step 3 of 3: dismissing the completion screen returns to the shop.
+  function closeKeyPurchaseComplete() {
+    setKeyPurchaseComplete(null);
   }
 
   // Reusable Shop slot picker — "None" plus each catalog item, showing owned/equipped/
@@ -4173,11 +4343,14 @@ function SystemEngine() {
   }
 
   // Static Shop line for a dungeon key (universal or domain-specific) — shows remaining
-  // daily purchases left out of KEY_DAILY_PURCHASE_CAP, disables once either gold or the
-  // cap runs out.
-  function renderKeyShopLine(label, scopeLabel, cost, purchasedToday, buyFn) {
+  // daily purchases left out of KEY_DAILY_PURCHASE_CAP, a quantity stepper capped at
+  // that remaining allowance, and a BUY button that opens the Confirm step (see
+  // openUniversalKeyPurchaseConfirm/openDomainKeyPurchaseConfirm) rather than buying
+  // instantly.
+  function renderKeyShopLine(label, scopeLabel, cost, purchasedToday, qty, setQty, openConfirmFn) {
     const remaining = KEY_DAILY_PURCHASE_CAP - purchasedToday;
-    const disabled = inventory.gold < cost || remaining <= 0;
+    const clampedQty = Math.max(1, Math.min(qty, Math.max(remaining, 1)));
+    const disabled = remaining <= 0 || inventory.gold < cost * clampedQty;
     return (
       <div className="flex items-center justify-between gap-2 mb-2">
         <div>
@@ -4188,13 +4361,32 @@ function SystemEngine() {
             {scopeLabel} · {remaining}/{KEY_DAILY_PURCHASE_CAP} left today
           </div>
         </div>
-        <button
-          onClick={buyFn}
-          disabled={disabled}
-          className="mono text-[9px] px-3 py-1.5 rounded border border-dashed border-[#2A3140] text-[#D6DCE5] opacity-80 hover:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed transition shrink-0"
-        >
-          BUY
-        </button>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            onClick={() => setQty((q) => Math.max(1, q - 1))}
+            disabled={remaining <= 0}
+            className="mono text-[9px] w-5 h-5 rounded border border-[#2A3140] text-[#8B94A3] disabled:opacity-30 disabled:cursor-not-allowed transition"
+          >
+            −
+          </button>
+          <span className="mono text-[9px] w-4 text-center" style={{ color: "#D6DCE5" }}>
+            {clampedQty}
+          </span>
+          <button
+            onClick={() => setQty((q) => Math.min(Math.max(remaining, 1), q + 1))}
+            disabled={remaining <= 0}
+            className="mono text-[9px] w-5 h-5 rounded border border-[#2A3140] text-[#8B94A3] disabled:opacity-30 disabled:cursor-not-allowed transition"
+          >
+            +
+          </button>
+          <button
+            onClick={openConfirmFn}
+            disabled={disabled}
+            className="mono text-[9px] px-3 py-1.5 rounded border border-dashed border-[#2A3140] text-[#D6DCE5] opacity-80 hover:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed transition"
+          >
+            BUY
+          </button>
+        </div>
       </div>
     );
   }
@@ -4817,6 +5009,16 @@ function SystemEngine() {
           if (s.goldSpentTotal !== undefined) setGoldSpentTotal(s.goldSpentTotal);
           if (s.highTierDropCount !== undefined) setHighTierDropCount(s.highTierDropCount);
           if (s.activeUrgentQuests) setActiveUrgentQuests(s.activeUrgentQuests);
+          // Urgent Quest persistence fix (v35) — urgentTimeLeft/urgentQuestsThisCycle
+          // were never wired into save/load (only activeUrgentQuests was), same bug
+          // class as the Emergency Quest fix above, now closed the same way.
+          if (s.urgentTimeLeft) setUrgentTimeLeft(s.urgentTimeLeft);
+          if (s.urgentQuestsThisCycle) setUrgentQuestsThisCycle(s.urgentQuestsThisCycle);
+          // Emergency Quest persistence — was previously useState-only (never wired into
+          // save/load), so an active Emergency Quest was lost on app close/reopen.
+          if (s.activeEmergencyQuests) setActiveEmergencyQuests(s.activeEmergencyQuests);
+          if (s.emergencyTimeLeft) setEmergencyTimeLeft(s.emergencyTimeLeft);
+          if (s.emergencyQuestsThisCycle) setEmergencyQuestsThisCycle(s.emergencyQuestsThisCycle);
           if (s.shopOwned) setShopOwned(s.shopOwned);
           if (s.shopEquipped) setShopEquipped(s.shopEquipped);
           if (s.accessoryTier !== undefined) setAccessoryTier(s.accessoryTier);
@@ -4884,6 +5086,11 @@ function SystemEngine() {
       goldSpentTotal,
       highTierDropCount,
       activeUrgentQuests,
+      urgentTimeLeft,
+      urgentQuestsThisCycle,
+      activeEmergencyQuests,
+      emergencyTimeLeft,
+      emergencyQuestsThisCycle,
       shopOwned,
       shopEquipped,
       accessoryTier,
@@ -4926,6 +5133,11 @@ function SystemEngine() {
     goldSpentTotal,
     highTierDropCount,
     activeUrgentQuests,
+    urgentTimeLeft,
+    urgentQuestsThisCycle,
+    activeEmergencyQuests,
+    emergencyTimeLeft,
+    emergencyQuestsThisCycle,
     shopOwned,
     shopEquipped,
     accessoryTier,
@@ -5499,7 +5711,7 @@ function SystemEngine() {
     grantHV(quest.domain, level); // HV = player level, per spec — scales with progression
     pushLog([
       `[System]: Emergency Quest resolved — ${quest.label}`,
-      `[System]: +${EMERGENCY_QUEST_XP} XP, +1 stat point, +${level} HV.`,
+      `[System]: +${EMERGENCY_QUEST_XP} XP, +1 stat point.`,
     ]);
     maybeRollEncounter(); // same non-Daily completion bonuses as every other quest type
     const gotBox = maybeGrantMysteryBox(); // independent roll
@@ -5535,7 +5747,7 @@ function SystemEngine() {
     setDomainQuestCount((prev) => ({ ...prev, [quest.domain]: (prev[quest.domain] || 0) + 1 }));
     grantXp(30); // XP rebalance 2026-09-06 — Manual 30 / Main 150 / Urgent 75
     grantHV(quest.domain, 1); // HV only now — grantHV no longer adds hidden bonus XP
-    pushLog([`[System]: Manual Quest complete — ${quest.label}`, "[System]: +30 XP, +1 HV."]);
+    pushLog([`[System]: Manual Quest complete — ${quest.label}`, "[System]: +30 XP."]);
     maybeRollEncounter(); // non-Daily completion — small chance of an Encounter
     const gotBox = maybeGrantMysteryBox(); // same non-Daily completions, independent roll
     maybeGrantEquipmentDrop(); // independent equipment-drop roll, same completion types
@@ -5587,7 +5799,7 @@ function SystemEngine() {
     grantHV(domainKey, 3); // HV only now — grantHV no longer adds hidden bonus XP
     pushLog([
       `[System]: Main Quest complete — ${quest.specific}`,
-      "[System]: +150 XP, +3 HV.",
+      "[System]: +150 XP.",
     ]);
     maybeRollMainQuestEncounter(); // dedicated higher-rate trigger — NOT maybeRollEncounter/ENCOUNTER_CHANCE
     const gotBox = maybeGrantMysteryBox(); // same non-Daily completions, independent roll
@@ -5832,6 +6044,43 @@ function SystemEngine() {
   // debugForced skips the gate check and key cost entirely (see the Debug tab trigger)
   // but still runs the REAL room/resolve/final-room/reward logic, same principle as
   // the old debug-force path had for the simpler single-roll version.
+  // Computes the exact key spend breakdown for a tier attempt — domain-specific first,
+  // universal covering the rest — WITHOUT touching inventory. Used to populate the
+  // confirmation screen; startDungeonRun below does the identical calculation again at
+  // the moment of actual spend (kept separate/duplicated rather than shared, since one
+  // is a pure preview and the other is the real state update).
+  function dungeonKeySpendPreview(domainKey, tier) {
+    const domainAvail = inventory.domainKeys[domainKey] || 0;
+    const fromDomain = Math.min(domainAvail, tier.keysReq);
+    const fromUniversal = tier.keysReq - fromDomain;
+    return {
+      fromDomain,
+      fromUniversal,
+      domainRemainingAfter: domainAvail - fromDomain,
+      universalRemainingAfter: inventory.dungeonKeys - fromUniversal,
+    };
+  }
+
+  // Opens the confirmation screen — does NOT spend a key or start the run. Only reached
+  // from an already-unlocked tier button (canAttemptDungeon already passed), so the
+  // preview here is guaranteed satisfiable.
+  function requestDungeonEntry(domainKey, tierKey) {
+    const tier = DUNGEON_TIERS.find((t) => t.key === tierKey);
+    if (!tier) return;
+    setPendingDungeonEntry({ domainKey, tier });
+  }
+
+  function cancelDungeonEntry() {
+    setPendingDungeonEntry(null);
+  }
+
+  function confirmDungeonEntry() {
+    if (!pendingDungeonEntry) return;
+    const { domainKey, tier } = pendingDungeonEntry;
+    setPendingDungeonEntry(null);
+    startDungeonRun(domainKey, tier.key, false); // existing key-consumption + entry logic, unchanged
+  }
+
   function startDungeonRun(domainKey, tierKey, debugForced) {
     const tier = DUNGEON_TIERS.find((t) => t.key === tierKey);
     if (!tier) return;
@@ -7047,6 +7296,146 @@ function SystemEngine() {
         </div>
       )}
 
+      {/* Dungeon Key Confirmation — shown right before a run starts, whenever a key
+          would actually be consumed (i.e. every non-debug entry). Cancel returns to the
+          Dungeon select screen with zero changes; Confirm hands off to the existing
+          startDungeonRun key-consumption + entry logic, unchanged. */}
+      {pendingDungeonEntry && (() => {
+        const { domainKey, tier } = pendingDungeonEntry;
+        const domain = DOMAINS.find((d) => d.key === domainKey);
+        const preview = dungeonKeySpendPreview(domainKey, tier);
+        const spendLines = [];
+        if (preview.fromDomain > 0) {
+          spendLines.push({
+            label: `${DUNGEON_LOCATIONS[domainKey]} Key × ${preview.fromDomain}`,
+            remaining: `${preview.domainRemainingAfter} left`,
+          });
+        }
+        if (preview.fromUniversal > 0) {
+          spendLines.push({
+            label: `Universal Key × ${preview.fromUniversal}`,
+            remaining: `${preview.universalRemainingAfter} left`,
+          });
+        }
+        return (
+          <div
+            className="fixed inset-0 flex items-center justify-center z-50 p-4"
+            style={{ backgroundColor: "rgba(0,0,0,0.7)" }}
+          >
+            <div
+              className="rounded-md px-6 py-5 max-w-sm w-full text-center"
+              style={{ border: "1px solid #3DDBD9", backgroundColor: "#12151C" }}
+            >
+              <div className="mono text-xs tracking-widest mb-3" style={{ color: "#3DDBD9" }}>
+                CONFIRM DUNGEON ENTRY
+              </div>
+              <div className="mono text-[10px] mb-1" style={{ color: domain.color }}>
+                {DUNGEON_LOCATIONS[domainKey]} — {tier.label}
+              </div>
+              <div className="mono text-[10px] mb-4" style={{ color: "#D6DCE5" }}>
+                {spendLines.map((l, i) => (
+                  <div key={i}>
+                    {l.label} <span style={{ color: "#5A6272" }}>({l.remaining} after)</span>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-2 justify-center">
+                <button
+                  onClick={confirmDungeonEntry}
+                  className="mono text-xs px-4 py-2 rounded transition"
+                  style={{ border: "1px solid #3DDBD9", color: "#3DDBD9" }}
+                >
+                  CONFIRM
+                </button>
+                <button
+                  onClick={cancelDungeonEntry}
+                  className="mono text-xs px-4 py-2 rounded border transition"
+                  style={{ borderColor: "#2A3140", color: "#8B94A3" }}
+                >
+                  CANCEL
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Dungeon Key Purchase — Confirmation step. Shown after tapping BUY on either
+          the Universal or the rotating domain-specific key line. No gold has moved yet;
+          Cancel returns to the Shop with zero changes. Same visual pattern as Gear's
+          purchase confirm. */}
+      {keyPurchaseConfirm && (
+        <div
+          className="fixed inset-0 flex items-center justify-center z-50 p-4"
+          style={{ backgroundColor: "rgba(0,0,0,0.7)" }}
+        >
+          <div
+            className="rounded-md px-6 py-5 max-w-sm w-full text-center"
+            style={{ border: "1px solid #3DDBD9", backgroundColor: "#12151C" }}
+          >
+            <div className="mono text-xs tracking-widest mb-3" style={{ color: "#3DDBD9" }}>
+              CONFIRM PURCHASE
+            </div>
+            <div className="mono text-[10px] mb-4" style={{ color: "#D6DCE5" }}>
+              {keyPurchaseConfirm.label} × {keyPurchaseConfirm.qty}
+              <br />
+              <span style={{ color: "#F2C94C" }}>{keyPurchaseConfirm.totalCost} Gold</span>
+              <br />
+              <span style={{ color: "#5A6272" }}>
+                {keyPurchaseConfirm.remainingAfter}/{KEY_DAILY_PURCHASE_CAP} left today after this
+              </span>
+            </div>
+            <div className="flex gap-2 justify-center">
+              <button
+                onClick={confirmKeyPurchase}
+                className="mono text-xs px-4 py-2 rounded transition"
+                style={{ border: "1px solid #3DDBD9", color: "#3DDBD9" }}
+              >
+                CONFIRM
+              </button>
+              <button
+                onClick={cancelKeyPurchase}
+                className="mono text-xs px-4 py-2 rounded border transition"
+                style={{ borderColor: "#2A3140", color: "#8B94A3" }}
+              >
+                CANCEL
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Dungeon Key Purchase — Completion step. Shown after Confirm; gold has already
+          been deducted and the keys added to inventory by this point. Continue just
+          dismisses back to the shop. Same visual pattern as Gear's purchase complete. */}
+      {keyPurchaseComplete && (
+        <div
+          className="fixed inset-0 flex items-center justify-center z-50 p-4"
+          style={{ backgroundColor: "rgba(0,0,0,0.7)" }}
+        >
+          <div
+            className="rounded-md px-6 py-5 max-w-sm w-full text-center"
+            style={{ border: "1px solid #3DDBD9", backgroundColor: "#12151C" }}
+          >
+            <div className="mono text-xs tracking-widest mb-3" style={{ color: "#3DDBD9" }}>
+              PURCHASE COMPLETE
+            </div>
+            <div className="mono text-[10px] mb-4" style={{ color: "#8B94A3" }}>
+              {keyPurchaseComplete.label} × {keyPurchaseComplete.qty}
+              <br />
+              −{keyPurchaseComplete.totalCost} Gold
+            </div>
+            <button
+              onClick={closeKeyPurchaseComplete}
+              className="mono text-xs px-5 py-2 rounded transition"
+              style={{ border: "1px solid #3DDBD9", color: "#3DDBD9" }}
+            >
+              CONTINUE
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Gear Sell — Confirmation step. Only ever opened for an unequipped owned item.
           No gold has moved yet; Cancel returns to the Gear tab with zero changes. */}
       {gearSellConfirm && (
@@ -7605,6 +7994,10 @@ function SystemEngine() {
 
                   <div className="mono text-xs mb-4 relative z-10" style={{ color: "#E5484D" }}>
                     {formatCountdown(emergencyTimeLeft)} remaining — failure locks the app
+                  </div>
+
+                  <div className="mono text-[10px] mb-4 relative z-10" style={{ color: "#8B94A3" }}>
+                    A failure results in a penalty. Penalty for incomplete daily tasks will stack.
                   </div>
 
                   <div className="flex gap-2 flex-wrap relative z-10">
@@ -8173,7 +8566,7 @@ function SystemEngine() {
                   return (
                     <button
                       key={tier.key}
-                      onClick={() => startDungeonRun(d.key, tier.key, false)}
+                      onClick={() => requestDungeonEntry(d.key, tier.key)}
                       disabled={!unlocked}
                       className="flex-1 mono text-[9px] px-2 py-1.5 rounded border transition"
                       style={
@@ -8234,7 +8627,9 @@ function SystemEngine() {
           "any dungeon — static, always available",
           UNIVERSAL_KEY_SHOP_COST,
           keyPurchasesToday.universal,
-          buyUniversalKey
+          universalKeyQty,
+          setUniversalKeyQty,
+          openUniversalKeyPurchaseConfirm
         )}
         {shopDomainKeyToday &&
           renderKeyShopLine(
@@ -8242,7 +8637,9 @@ function SystemEngine() {
             `${DUNGEON_LOCATIONS[shopDomainKeyToday]} only — today's rotation`,
             DOMAIN_KEY_SHOP_COST,
             keyPurchasesToday[shopDomainKeyToday] || 0,
-            () => buyDomainKey(shopDomainKeyToday)
+            domainKeyQty,
+            setDomainKeyQty,
+            openDomainKeyPurchaseConfirm
           )}
         <div className="mono text-[9px] text-[#5A6272] mt-1">
           Universal Key is a static listing — always available, doesn't rotate. The

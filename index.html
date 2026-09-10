@@ -234,7 +234,7 @@ const GENDERS = ["Male", "Female", "Non-binary"];
 // PATCH_NOTES_TEXT is the full patch-notes.md content, embedded as a read-only
 // string so it can be displayed directly in-app without a separate file fetch.
 // Keep this in sync with the real patch-notes.md file shipped alongside each build.
-const APP_VERSION = "v35 (TEMP DEBUG)";
+const APP_VERSION = "v37 (TEMP DEBUG)";
 const PATCH_NOTES_TEXT = `# The System — Patch Notes
 
 Covers all builds completed in this chat, starting from the uploaded baseline
@@ -242,6 +242,133 @@ Covers all builds completed in this chat, starting from the uploaded baseline
 corresponds to the JSX artifact number shipped at that point; \`the-system-app.html\`
 was kept in lockstep from v20 onward (v19's Quick Start was JSX-only for one turn
 before being ported back into the HTML in v20).
+
+---
+
+## v37 (TEMP DEBUG carried over — see note below)
+
+**NOTE:** the notification-toggle \`alert()\` debug instrumentation from v29 is
+still live in the code (confirmed still unresolved — pushed off intentionally
+for now), so the version string still carries the TEMP DEBUG flag.
+
+**Equipment Lootbox — now banked/opened from Inventory (closes the v36 flag)**
+- Equipment Lootbox now works exactly like Mystery Box and Dungeon Lootbox:
+  a Financial Encounter Win banks a counter (\`inventory.equipmentLootbox\`)
+  instead of immediately rolling and granting a concrete gear item. Resolved
+  on open, via the same universal Confirm/Amount flow the rest of v36 built.
+- \`resolveEncounter\`'s Financial Win branch simplified — the old special-cased
+  \`{ type: "equipment", item: rollEquipmentLootbox() }\` shape is gone;
+  Equipment Lootbox is now just another \`{ field, label }\` inventory-reward
+  entry, same shape as Bonus Stat Point/XP Booster/HV Catalyst/Hairstyle
+  Change. This let \`engageEncounter\`'s reward-application code collapse to a
+  single branch (the old \`if (type === "equipment") ... else ...\` split is
+  gone entirely) and removed the same special-casing from the Financial Win
+  result screen's reward-line text.
+- New \`resolveEquipmentLootboxBox()\` (pure single-roll resolver, thin wrapper
+  around the unchanged \`rollEquipmentLootbox()\`) + \`openEquipmentLootboxesBatch(qty)\`
+  (N independent rolls, not a single roll scaled up) — added to Inventory
+  panel with the same quantity-stepper + Confirm/Complete flow as the other
+  two lootbox types.
+- \`inventory.equipmentLootbox\` added to default state, the debug full-reset,
+  and the load-merge default (so a pre-v37 save doesn't produce \`undefined\`
+  for the field) — no dedicated save/dependency-array entry needed since
+  it's part of the existing \`inventory\` object, which was already covered.
+- Debug tab fix (found while wiring this): the existing "Equipment Lootbox
+  (force roll)" button was mislabeled — it actually forced the separate,
+  always-instant quest-completion Equipment Drop system
+  (\`grantEquipmentDropRoll\`/\`EQUIPMENT_DROP_TIER_WEIGHTS\`), not the
+  Financial-Encounter-Win Equipment Lootbox this batch is about. Split into
+  two correctly-labeled buttons: "Equipment Lootbox (force 1, banked)" (new,
+  tests the actual banked flow this batch adds) and "Quest-Completion
+  Equipment Drop (force roll)" (the old button, relabeled, behavior
+  unchanged).
+- All three lootbox types (Mystery Box, Dungeon Lootbox, Equipment Lootbox)
+  now function identically from Inventory: banked on acquisition, resolved
+  independently per-unit at open time, with the same Confirm → Complete UI.
+
+---
+
+## v36 (TEMP DEBUG carried over — see note below)
+
+**NOTE:** the notification-toggle \`alert()\` debug instrumentation from v29 is
+still live in the code (confirmed still unresolved — pushed off intentionally
+for now), so the version string still carries the TEMP DEBUG flag. Everything
+else below is a normal feature batch — the final queued batch (items 15–16).
+
+**Dungeon Lootbox — Guaranteed Drop + Gear/Consumable Split + Consumable Boost
+System**
+- \`DUNGEON_LOOTBOX_CHANCE\`: 0.15 → 1.0 — every Dungeon Complete now banks a
+  Dungeon Lootbox (still Complete-only, not Partial/Fail).
+- **Resolve-on-open, not resolve-on-Complete** (the dependency the spec
+  flagged): a Complete now pushes an UNOPENED box into a new
+  \`unopenedDungeonLootboxes\` array — each entry remembers its own
+  \`domainKey\`/\`tierKey\`/\`gearChance\` — rather than immediately rolling and
+  granting a gear item. Gear vs. Consumable is decided later, when the
+  player actually opens it from Inventory.
+- **Gear/Consumable split**, resolved at open time: 30% baseline resolves to
+  gear via the existing \`DUNGEON_LOOTBOX_TIER_WEIGHTS\`/\`buildDungeonLootboxItem\`
+  path (fully unchanged — Novice/Adept/Elite odds, Named-Elite-only all
+  intact), 70% resolves to a Consumable Boost instead. Net gear-per-clear
+  baseline is now 100% box × 30% gear = 30% (2x the old 15%), before any
+  Drop Rate Boost.
+- **12 new Consumable Boosts** (4 types × 3 tiers — Minor/Major/Superior):
+  Tell Chance Boost (+15/+30/+50% Final Room tell reveal), Resolve Boost
+  (+25/+50/+100% Resolve pool for that run), Hearts Boost (+1/+2/+3 flat
+  Final Room hearts), Drop Rate Boost (30%→45/60/100% gear chance —
+  self-referential, only affects the box from the run it's used on). All
+  four are single-use, universal (any dungeon), and applied to exactly one
+  upcoming run.
+- **Application flow**: boosts are selected in the Dungeon Key confirmation
+  screen (new \`dungeonBoostSelection\` state — one tier max per type,
+  picking the same tier again deselects it), consumed atomically alongside
+  the key spend on Confirm. \`startDungeonRun\` stores the run's selection on
+  \`activeDungeonRun.boosts\`; Resolve Boost applies to \`resolveMax\` at entry,
+  Tell Chance Boost adds into \`startDungeonFinalRoomRound\`'s tell calc
+  alongside the existing equipment bonus (same 100% cap), Hearts Boost adds
+  flat onto the Two-Pronged hearts total at Final Room entry, Drop Rate
+  Boost is stored on that run's own banked box and overrides its
+  \`gearChance\` at open time.
+- **12-item weighted roll** within the 70% consumable slice (conditional,
+  sums to 1.0 on its own): Minor 15% each / Major 7% each / Superior 3%
+  each — matches spec exactly.
+- Inventory: \`inventory.consumableBoosts\` (12 nested counters, 2-level-deep
+  save/load migration so old saves don't lose individual counters).
+- Debug tab: added "Dungeon Lootbox — Bank Unopened" to test the open flow
+  without a full dungeon run, alongside the existing direct gear-roll
+  debug buttons (left untouched — they still test the gear table directly).
+
+**Consumable + Lootbox Usage — Confirmation + Amount Selector**
+- Universal Confirm → Complete flow (same pattern as Gear/Key purchases)
+  now applies to: Mystery Box, Dungeon Lootbox, HV Catalyst, Bonus Stat
+  Point, and Teleport Stone. Each gets a quantity stepper capped at however
+  many are owned (Teleport Stone additionally capped at the current
+  \`penaltyQueue\` length, since using more than that has no effect).
+- Consumables apply as N SEPARATE applications (e.g. 3x HV Catalyst = 3
+  separate +2 HV grants); lootboxes resolve as N INDEPENDENT rolls, each
+  against its own odds/table, never a single roll scaled up — verified for
+  Mystery Box's Auto Level Up case specifically (multiple triggers in one
+  batch now produce correctly-sequenced separate \`pendingLevelUps\` entries
+  instead of a race).
+- Mystery Box's single-roll logic was refactored into a pure
+  \`rollMysteryBoxOnce()\` resolver + \`openMysteryBoxesBatch(qty)\`, and
+  Dungeon Lootbox got the equivalent \`resolveDungeonLootboxBox()\` +
+  \`openDungeonLootboxesBatch(qty)\` pair, so both can be rolled N times in
+  one action without stale-closure risk between rolls.
+- **XP Booster and Hairstyle Change included for a consistent Confirm step,
+  but capped at qty=1** — both are single-flag "armed" mechanics
+  (\`xpBoostActive\`, \`hairstyleEditUnlocked\`), not stacking counters, so "use
+  3" has no well-defined meaning for them the way it does for HV Catalyst.
+  Flagged here rather than silently building a broken 3x-apply.
+- **Flagged, not built**: the spec's third listed lootbox type, "Equipment
+  Lootbox," currently resolves INSTANTLY at Financial Encounter-resolution
+  time (\`engageEncounter\` → \`rollEquipmentLootbox()\`), not as a banked,
+  player-opened inventory item the way Mystery Box and Dungeon Lootbox are.
+  There's no natural target for a Confirm+Amount flow on it as currently
+  built — giving it one would require first restructuring it into the same
+  banked/unopened-box model Dungeon Lootbox just got, which is a real
+  architecture change, not a mechanical extension of this batch. Left it
+  alone rather than guessing; flagging for a decision on whether that
+  restructuring is wanted.
 
 ---
 
@@ -1693,7 +1820,13 @@ const DUNGEON_STAT_REWARD = { novice: 1, adept: 2, elite: 3 };
 // this superseded the original "Named never enchants" note. See rollNamedEnchants.
 // Non-Named Dungeon Lootbox items (t1/t2/t3) still never carry an enchant.
 // ============================================================================
-const DUNGEON_LOOTBOX_CHANCE = 0.15;
+const DUNGEON_LOOTBOX_CHANCE = 1.0; // was 0.15 — now guaranteed on every Complete (see gear/consumable split below)
+// Gear/Consumable split — resolved at OPEN time (not Complete time). 30% baseline
+// resolves to gear via the existing tier-weight tables below; 70% resolves to a
+// Consumable Boost instead (see CONSUMABLE_BOOST_* further down). A Drop Rate Boost
+// consumable, if applied to a specific run before it starts, overrides this baseline
+// for that run's own box only — see dungeonBoostSelection / CONSUMABLE_BOOST_EFFECTS.
+const DUNGEON_LOOTBOX_GEAR_CHANCE = 0.30;
 const DUNGEON_LOOTBOX_TIER_WEIGHTS = {
   novice: [
     { tier: "t1", weight: 0.55 },
@@ -1813,6 +1946,58 @@ function rollDungeonLootbox(domainKey, dungeonTierKey) {
 // bypassing the tier-weighted roll entirely (Named Drop debug button).
 function rollDungeonNamedItem(domainKey) {
   return buildDungeonLootboxItem(domainKey, "named");
+}
+
+// ============================================================================
+// CONSUMABLE BOOSTS — 12 items (4 types × 3 tiers), the 70% non-gear slice of an
+// opened Dungeon Lootbox (see DUNGEON_LOOTBOX_GEAR_CHANCE above). Single-use,
+// universal (usable in any dungeon regardless of which dungeon dropped them), and
+// applied to exactly one upcoming dungeon run — selected in the Dungeon Key
+// confirmation screen (dungeonBoostSelection), not from a generic "use anytime"
+// Inventory action, since their effect only means something in the context of a
+// specific run. See patch notes for why this is a deliberate scope boundary against
+// the otherwise-universal Confirm+Amount flow the rest of this batch adds.
+// ============================================================================
+const CONSUMABLE_BOOST_TYPES = [
+  { key: "tellChance", label: "Tell Chance Boost" },
+  { key: "resolve", label: "Resolve Boost" },
+  { key: "hearts", label: "Hearts Boost" },
+  { key: "dropRate", label: "Drop Rate Boost" },
+];
+const CONSUMABLE_BOOST_TIERS = ["minor", "major", "superior"];
+const CONSUMABLE_BOOST_TIER_LABELS = { minor: "Minor", major: "Major", superior: "Superior" };
+// tellChance: flat percentage points added onto that run's Final Room tell reveal
+// chance (same 0-100 scale startDungeonFinalRoomRound already works in).
+// resolve: fractional increase applied to that run's resolveMax at Dungeon entry.
+// hearts: flat bonus hearts added on top of the existing Two-Pronged total.
+// dropRate: REPLACES (not adds to) DUNGEON_LOOTBOX_GEAR_CHANCE for that run's own box.
+const CONSUMABLE_BOOST_EFFECTS = {
+  tellChance: { minor: 15, major: 30, superior: 50 },
+  resolve: { minor: 0.25, major: 0.5, superior: 1.0 },
+  hearts: { minor: 1, major: 2, superior: 3 },
+  dropRate: { minor: 0.45, major: 0.6, superior: 1.0 },
+};
+// Conditional weights WITHIN the 70% consumable slice (i.e. given the open already
+// resolved to "consumable" against DUNGEON_LOOTBOX_GEAR_CHANCE) — these 12 sum to 1.0
+// on their own. Minor 15% each / Major 7% each / Superior 3% each, per spec.
+const CONSUMABLE_BOOST_ROLL_POOL = CONSUMABLE_BOOST_TYPES.flatMap((t) => [
+  { type: t.key, tier: "minor", weight: 0.15 },
+  { type: t.key, tier: "major", weight: 0.07 },
+  { type: t.key, tier: "superior", weight: 0.03 },
+]);
+function consumableBoostLabel(type, tier) {
+  const typeLabel = CONSUMABLE_BOOST_TYPES.find((t) => t.key === type).label;
+  return `${CONSUMABLE_BOOST_TIER_LABELS[tier]} ${typeLabel}`;
+}
+function defaultConsumableBoosts() {
+  return Object.fromEntries(
+    CONSUMABLE_BOOST_TYPES.map((t) => [t.key, { minor: 0, major: 0, superior: 0 }])
+  );
+}
+let dungeonLootboxIdCounter = 0;
+function dungeonLootboxNextId() {
+  dungeonLootboxIdCounter += 1;
+  return `dlb_${Date.now()}_${dungeonLootboxIdCounter}`;
 }
 
 // ============================================================================
@@ -2032,6 +2217,14 @@ function rollEquipmentLootbox() {
   const name = namePool[Math.floor(Math.random() * namePool.length)];
   const enchant = equipmentRollEnchant(tier);
   return equipmentCreateItem(slot, tier, name, { enchants: enchant ? [enchant] : [] });
+}
+// Single-box pure resolver — no domain/tier context needed (unlike Dungeon Lootbox),
+// since rollEquipmentLootbox is a flat weighted tier + random slot roll. Kept as its
+// own thin wrapper (rather than calling rollEquipmentLootbox directly at the batch
+// call site) purely for naming symmetry with resolveDungeonLootboxBox.
+function resolveEquipmentLootboxBox() {
+  const item = rollEquipmentLootbox();
+  return { item, logLine: `Equipment Lootbox — ${equipmentItemLabel(item)}.` };
 }
 
 // Rolls today's Shop gear stock — one pre-rolled item per slot, name+tier+bonus all
@@ -3670,6 +3863,13 @@ function SystemEngine() {
   const [emergencyQuestsThisCycle, setEmergencyQuestsThisCycle] = useState(0);
   const [inventory, setInventory] = useState({
     mysteryBoxes: 0,
+    // Equipment Lootbox — banked/unopened like every other lootbox (v37+), resolved on
+    // open via resolveEquipmentLootboxBox/openEquipmentLootboxesBatch, not granted
+    // immediately at Financial Encounter Win anymore. Field name matches
+    // ENCOUNTER_ITEM_POOL/MAIN_QUEST_FINANCIAL_ITEM_POOL's `field: "equipmentLootbox"`
+    // exactly, since engageEncounter's generic inventory-reward branch increments
+    // whatever field the picked pool entry names.
+    equipmentLootbox: 0,
     teleportStones: 0,
     bonusStatPoints: 0,
     xpBoosters: 0,
@@ -3680,6 +3880,8 @@ function SystemEngine() {
     // counter per domain, each only spendable on that domain's matching dungeon. See
     // DUNGEON_LOCATIONS for the domain->location pairing.
     domainKeys: Object.fromEntries(DOMAINS.map((d) => [d.key, 0])),
+    // 12 Consumable Boost counters (4 types × 3 tiers) — see CONSUMABLE_BOOST_TYPES.
+    consumableBoosts: defaultConsumableBoosts(),
     gold: 0,
   });
   // Daily purchase caps for the Shop's key lines — universal + one per domain-specific
@@ -3696,6 +3898,13 @@ function SystemEngine() {
   const [domainKeyQty, setDomainKeyQty] = useState(1);
   const [keyPurchaseConfirm, setKeyPurchaseConfirm] = useState(null);
   const [keyPurchaseComplete, setKeyPurchaseComplete] = useState(null);
+  // Consumable + Lootbox Usage — universal Confirm/Amount flow (Mystery Box, Dungeon
+  // Lootbox, HV Catalyst, Bonus Stat Point, Teleport Stone). Quantity selectors keyed
+  // by itemKey, not persisted, reset to 1 after each completed use. usageConfirm/
+  // usageComplete are the same 2-step pattern as keyPurchaseConfirm/Complete above.
+  const [usageQty, setUsageQty] = useState({});
+  const [usageConfirm, setUsageConfirm] = useState(null);
+  const [usageComplete, setUsageComplete] = useState(null);
   const [spendBonusDomain, setSpendBonusDomain] = useState(DOMAINS[0].key);
   const [spendCatalystDomain, setSpendCatalystDomain] = useState(DOMAINS[0].key);
   const [xpBoostActive, setXpBoostActive] = useState(false);
@@ -3830,6 +4039,23 @@ function SystemEngine() {
   // on Confirm/Cancel or a fresh page load); startDungeonRun's existing key-consumption
   // + entry logic is untouched, this only gates the call to it behind an explicit tap.
   const [pendingDungeonEntry, setPendingDungeonEntry] = useState(null);
+  // Dungeon Boost selection — which Consumable Boost (if any) is chosen per type for
+  // the pending/upcoming run, picked alongside the key confirmation above. Shape:
+  // { tellChance: "minor"|"major"|"superior"|null, resolve: ..., hearts: ..., dropRate: ... }.
+  // Reset to all-null each time requestDungeonEntry opens a fresh confirmation. Consumed
+  // (inventory decremented) only on actual Confirm, same as the key spend.
+  const [dungeonBoostSelection, setDungeonBoostSelection] = useState({
+    tellChance: null,
+    resolve: null,
+    hearts: null,
+    dropRate: null,
+  });
+  // Banked, unopened Dungeon Lootboxes — one entry per Complete since v36 (guaranteed
+  // drop; DUNGEON_LOOTBOX_CHANCE = 1.0), each remembering the run's domainKey/tierKey
+  // (for the eventual gear roll) and that specific box's own gearChance (30% baseline,
+  // or boosted if a Drop Rate Boost consumable was applied to that run). Gear vs
+  // Consumable is resolved at OPEN time via openDungeonLootboxes, not at Complete time.
+  const [unopenedDungeonLootboxes, setUnopenedDungeonLootboxes] = useState([]);
 
   // Debug-only input state — direct level/stat setters, so Dungeon's gates (and
   // anything else level/stat-gated) can actually be tested without grinding real XP
@@ -4090,12 +4316,15 @@ function SystemEngine() {
     pushLog(["[System]: XP Booster activated — next XP grant doubled."]);
   }
 
-  function spendHvCatalyst() {
-    if (inventory.hvCatalysts <= 0) return;
+  // Spends `qty` HV Catalysts as `qty` SEPARATE +2 HV grants to the chosen domain
+  // (not a single +2*qty application) — matches the "N separate applications" rule.
+  function spendHvCatalystBatch(qty) {
+    const actualQty = Math.min(qty, inventory.hvCatalysts);
+    if (actualQty <= 0) return;
     const domain = DOMAINS.find((d) => d.key === spendCatalystDomain);
-    setInventory((prev) => ({ ...prev, hvCatalysts: prev.hvCatalysts - 1 }));
-    grantHV(spendCatalystDomain, 2);
-    pushLog([`[System]: HV Catalyst spent — ${domain.label}.`]);
+    setInventory((prev) => ({ ...prev, hvCatalysts: prev.hvCatalysts - actualQty }));
+    for (let i = 0; i < actualQty; i++) grantHV(spendCatalystDomain, 2);
+    pushLog([`[System]: HV Catalyst spent × ${actualQty} — ${domain.label}.`]);
   }
 
   // Avatar creation is one-and-done — this is the only way to change hairstyle afterward.
@@ -4488,17 +4717,49 @@ function SystemEngine() {
     );
   }
 
+  // Shared −/qty/+ stepper for the Consumable + Lootbox Usage flow — same visual as
+  // the Shop's key-purchase stepper. maxQty already accounts for whatever constraint
+  // applies to that item (owned count, xpBoostActive/hairstyleEditUnlocked gating at 1,
+  // or the penaltyQueue length for Teleport Stone).
+  function renderUsageStepper(itemKey, maxQty) {
+    const qty = getUsageQty(itemKey);
+    return (
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => setUsageQtyFor(itemKey, (q) => Math.max(1, q - 1))}
+          disabled={maxQty <= 1}
+          className="mono text-[9px] w-5 h-5 rounded border border-[#2A3140] text-[#8B94A3] disabled:opacity-30 disabled:cursor-not-allowed transition"
+        >
+          −
+        </button>
+        <span className="mono text-[9px] w-4 text-center" style={{ color: "#D6DCE5" }}>
+          {qty}
+        </span>
+        <button
+          onClick={() => setUsageQtyFor(itemKey, (q) => Math.min(Math.max(maxQty, 1), q + 1))}
+          disabled={maxQty <= 1}
+          className="mono text-[9px] w-5 h-5 rounded border border-[#2A3140] text-[#8B94A3] disabled:opacity-30 disabled:cursor-not-allowed transition"
+        >
+          +
+        </button>
+      </div>
+    );
+  }
+
   function renderInventoryPanel() {
     return (
       <>
       {/* Inventory — mystery box drops */}
       {(inventory.mysteryBoxes > 0 ||
+        inventory.equipmentLootbox > 0 ||
+        unopenedDungeonLootboxes.length > 0 ||
         inventory.teleportStones > 0 ||
         inventory.bonusStatPoints > 0 ||
         inventory.xpBoosters > 0 ||
         inventory.hvCatalysts > 0 ||
         inventory.dungeonKeys > 0 ||
         Object.values(inventory.domainKeys).some((n) => n > 0) ||
+        CONSUMABLE_BOOST_TYPES.some((t) => CONSUMABLE_BOOST_TIERS.some((tier) => inventory.consumableBoosts[t.key][tier] > 0)) ||
         inventory.gold > 0) && (
         <div className="border border-[#1E2430] bg-[#12151C] rounded-md px-4 py-3 mb-4 space-y-2">
           <div className="flex items-center justify-between">
@@ -4509,25 +4770,74 @@ function SystemEngine() {
           </div>
 
           {inventory.mysteryBoxes > 0 && (
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <span className="mono text-xs text-[#F2A93B]">
                 Mystery Box × {inventory.mysteryBoxes}
               </span>
-              <button
-                onClick={openMysteryBox}
-                className="mono text-[10px] px-3 py-1 rounded border border-[#2A3140] hover:border-[#3DDBD9] transition text-[#D6DCE5]"
-              >
-                OPEN
-              </button>
+              <div className="flex items-center gap-1.5">
+                {renderUsageStepper("mysteryBoxes", inventory.mysteryBoxes)}
+                <button
+                  onClick={openMysteryBoxUseConfirm}
+                  className="mono text-[10px] px-3 py-1 rounded border border-[#2A3140] hover:border-[#3DDBD9] transition text-[#D6DCE5]"
+                >
+                  OPEN
+                </button>
+              </div>
+            </div>
+          )}
+
+          {inventory.equipmentLootbox > 0 && (
+            <div className="flex items-center justify-between gap-2">
+              <span className="mono text-xs text-[#F2A93B]">
+                Equipment Lootbox × {inventory.equipmentLootbox}
+              </span>
+              <div className="flex items-center gap-1.5">
+                {renderUsageStepper("equipmentLootboxes", inventory.equipmentLootbox)}
+                <button
+                  onClick={openEquipmentLootboxUseConfirm}
+                  className="mono text-[10px] px-3 py-1 rounded border border-[#2A3140] hover:border-[#3DDBD9] transition text-[#D6DCE5]"
+                >
+                  OPEN
+                </button>
+              </div>
+            </div>
+          )}
+
+          {unopenedDungeonLootboxes.length > 0 && (
+            <div className="flex items-center justify-between gap-2">
+              <span className="mono text-xs text-[#3DDBD9]">
+                Dungeon Lootbox × {unopenedDungeonLootboxes.length}
+              </span>
+              <div className="flex items-center gap-1.5">
+                {renderUsageStepper("dungeonLootboxes", unopenedDungeonLootboxes.length)}
+                <button
+                  onClick={openDungeonLootboxUseConfirm}
+                  className="mono text-[10px] px-3 py-1 rounded border border-[#2A3140] hover:border-[#3DDBD9] transition text-[#D6DCE5]"
+                >
+                  OPEN
+                </button>
+              </div>
             </div>
           )}
 
           {inventory.teleportStones > 0 && (
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <span className="mono text-xs text-[#3DDBD9]">
                 Teleportation Stone × {inventory.teleportStones}
               </span>
-              <span className="mono text-[10px] text-[#5A6272]">use during penalty lockout</span>
+              {penaltyQueue.length > 0 ? (
+                <div className="flex items-center gap-1.5">
+                  {renderUsageStepper("teleportStones", Math.min(inventory.teleportStones, penaltyQueue.length))}
+                  <button
+                    onClick={openTeleportStoneUseConfirm}
+                    className="mono text-[10px] px-3 py-1 rounded border border-[#2A3140] hover:border-[#3DDBD9] transition text-[#D6DCE5]"
+                  >
+                    USE
+                  </button>
+                </div>
+              ) : (
+                <span className="mono text-[10px] text-[#5A6272]">no penalty queued</span>
+              )}
             </div>
           )}
 
@@ -4570,8 +4880,9 @@ function SystemEngine() {
                   </option>
                 ))}
               </select>
+              {renderUsageStepper("bonusStatPoints", inventory.bonusStatPoints)}
               <button
-                onClick={spendBonusStatPoint}
+                onClick={openBonusStatPointUseConfirm}
                 className="mono text-[10px] px-3 py-1 rounded border border-[#2A3140] hover:border-[#3DDBD9] transition text-[#D6DCE5]"
               >
                 SPEND
@@ -4588,7 +4899,7 @@ function SystemEngine() {
                 )}
               </span>
               <button
-                onClick={activateXpBoost}
+                onClick={openXpBoosterUseConfirm}
                 disabled={xpBoostActive}
                 className="mono text-[10px] px-3 py-1 rounded border border-[#2A3140] hover:border-[#3DDBD9] transition text-[#D6DCE5] disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
               >
@@ -4613,12 +4924,33 @@ function SystemEngine() {
                   </option>
                 ))}
               </select>
+              {renderUsageStepper("hvCatalysts", inventory.hvCatalysts)}
               <button
-                onClick={spendHvCatalyst}
+                onClick={openHvCatalystUseConfirm}
                 className="mono text-[10px] px-3 py-1 rounded border border-[#2A3140] hover:border-[#3DDBD9] transition text-[#D6DCE5]"
               >
                 SPEND
               </button>
+            </div>
+          )}
+
+          {CONSUMABLE_BOOST_TYPES.some((t) =>
+            CONSUMABLE_BOOST_TIERS.some((tier) => inventory.consumableBoosts[t.key][tier] > 0)
+          ) && (
+            <div className="pt-1 border-t border-[#1E2430]">
+              <div className="mono text-[9px] text-[#5A6272] mb-1">
+                CONSUMABLE BOOSTS — applied when entering a Dungeon, not used from here
+              </div>
+              {CONSUMABLE_BOOST_TYPES.map((t) =>
+                CONSUMABLE_BOOST_TIERS.map(
+                  (tier) =>
+                    inventory.consumableBoosts[t.key][tier] > 0 && (
+                      <div key={`${t.key}-${tier}`} className="mono text-[10px] text-[#7EE8E6]">
+                        {consumableBoostLabel(t.key, tier)} × {inventory.consumableBoosts[t.key][tier]}
+                      </div>
+                    )
+                )
+              )}
             </div>
           )}
         </div>
@@ -4628,90 +4960,289 @@ function SystemEngine() {
   }
 
 
-  // Opens the Daily Quest's Mystery Box. Nothing is the most likely outcome — this is meant
-  // to feel like a real loot roll, not a guaranteed bonus every day.
-  // Weighted loot roll: 30% Teleportation Stone, 20% Bonus Stat Point, 3% Auto Level Up
-  // (extremely rare — instantly grants a level, no XP requirement), 47% nothing.
-  // Weighted loot roll. Gold is the common floor — every roll gives something, nothing
-  // returns empty-handed. Teleportation Stone and Auto Level Up are the two power outliers,
-  // both pushed to the rarest tier since they bypass real mechanics (penalty, XP curve).
-  // Small Gold 36% | Medium Gold 18% | Large Gold 6%
-  // Bonus Point 10% | XP Booster 10% | HV Catalyst 15%
-  // Teleport Stone 3% | Auto Level Up 2%
-  // Small Gold 31% | Medium Gold 18% | Large Gold 6% | Bonus Point 10% | XP Booster 10%
-  // HV Catalyst 15% | Hairstyle Change 5% | Teleport Stone 3% | Auto Level Up 2%
-  // Usable, not auto-opened — this only runs when the player taps Open on a banked box.
-  // Rebalanced for Dungeon Key (8%) — trimmed only from Small Gold (31%->23%), every
-  // other entry's odds are untouched. No level-up key source per design — Mystery Box
-  // is the only way to earn one.
-  // Gold tier payouts doubled (20/50/120) — roll thresholds/odds themselves untouched.
-  function openMysteryBox() {
-    if (inventory.mysteryBoxes <= 0) return;
-    setInventory((prev) => ({ ...prev, mysteryBoxes: prev.mysteryBoxes - 1 }));
+  // Single-roll pure resolver — returns a description of the outcome without touching
+  // state, so it can be called N times in a row for a batched multi-open (see
+  // openMysteryBoxesBatch) without any stale-closure risk between rolls.
+  function rollMysteryBoxOnce() {
     const roll = Math.random() * 100;
-    if (roll < 23) {
-      setInventory((prev) => ({ ...prev, gold: prev.gold + 20 }));
-      setGoldEarnedTotal((prev) => prev + 20);
-      pushLog(["[System]: Mystery Box — 20 Gold."]);
-    } else if (roll < 41) {
-      setInventory((prev) => ({ ...prev, gold: prev.gold + 50 }));
-      setGoldEarnedTotal((prev) => prev + 50);
-      pushLog(["[System]: Mystery Box — 50 Gold."]);
-    } else if (roll < 47) {
-      setInventory((prev) => ({ ...prev, gold: prev.gold + 120 }));
-      setGoldEarnedTotal((prev) => prev + 120);
-      pushLog(["[System]: Mystery Box — 120 Gold."]);
-    } else if (roll < 57) {
-      setInventory((prev) => ({ ...prev, bonusStatPoints: prev.bonusStatPoints + 1 }));
-      pushLog(["[System]: Mystery Box — Bonus Stat Point acquired."]);
-    } else if (roll < 67) {
-      setInventory((prev) => ({ ...prev, xpBoosters: prev.xpBoosters + 1 }));
-      pushLog(["[System]: Mystery Box — XP Booster acquired."]);
-    } else if (roll < 82) {
-      setInventory((prev) => ({ ...prev, hvCatalysts: prev.hvCatalysts + 1 }));
-      pushLog(["[System]: Mystery Box — HV Catalyst acquired."]);
-    } else if (roll < 90) {
-      setInventory((prev) => ({ ...prev, dungeonKeys: prev.dungeonKeys + 1 }));
-      pushLog(["[System]: Mystery Box — Dungeon Key acquired."]);
-    } else if (roll < 95) {
-      setInventory((prev) => ({ ...prev, hairstyleChanges: prev.hairstyleChanges + 1 }));
-      pushLog(["[System]: Mystery Box — Hairstyle Change acquired."]);
-    } else if (roll < 98) {
-      setInventory((prev) => ({ ...prev, teleportStones: prev.teleportStones + 1 }));
-      setHighTierDropCount((prev) => prev + 1);
-      pushLog(["[System]: Mystery Box — ??? acquired.", "[System]: Teleportation Stone."]);
-    } else {
-      const newLevel = level + 1;
-      setHighTierDropCount((prev) => prev + 1);
-      pushLog(["[System]: Mystery Box — ??? acquired.", "[System]: Auto Level Up triggered."]);
-      setLevel(newLevel);
-      setPendingLevelUps((prev) => [...prev, { fromLevel: level, toLevel: newLevel }]);
-    }
+    if (roll < 23) return { kind: "gold", amount: 20, logLine: "Mystery Box — 20 Gold." };
+    if (roll < 41) return { kind: "gold", amount: 50, logLine: "Mystery Box — 50 Gold." };
+    if (roll < 47) return { kind: "gold", amount: 120, logLine: "Mystery Box — 120 Gold." };
+    if (roll < 57) return { kind: "inventory", field: "bonusStatPoints", logLine: "Mystery Box — Bonus Stat Point acquired." };
+    if (roll < 67) return { kind: "inventory", field: "xpBoosters", logLine: "Mystery Box — XP Booster acquired." };
+    if (roll < 82) return { kind: "inventory", field: "hvCatalysts", logLine: "Mystery Box — HV Catalyst acquired." };
+    if (roll < 90) return { kind: "inventory", field: "dungeonKeys", logLine: "Mystery Box — Dungeon Key acquired." };
+    if (roll < 95) return { kind: "inventory", field: "hairstyleChanges", logLine: "Mystery Box — Hairstyle Change acquired." };
+    if (roll < 98) return { kind: "teleportStone", logLines: ["Mystery Box — ??? acquired.", "Teleportation Stone."] };
+    return { kind: "autoLevelUp", logLines: ["Mystery Box — ??? acquired.", "Auto Level Up triggered."] };
   }
 
-  // Skips (only) the CURRENT front penalty — advances the queue same as clearPenalty,
-  // starting the next queued entry's countdown fresh if there is one.
-  function useTeleportStone() {
-    if (inventory.teleportStones <= 0) return;
-    setInventory((prev) => ({ ...prev, teleportStones: prev.teleportStones - 1 }));
+  // Opens `qty` Mystery Boxes as `qty` INDEPENDENT rolls (not one roll scaled up) —
+  // Auto Level Up is applied sequentially so a multi-open with 2+ triggers still grants
+  // 2+ separate, correctly-sequenced pendingLevelUps entries. Clamps qty to however many
+  // are actually owned. Returns one result line per roll, for the Completion screen.
+  function openMysteryBoxesBatch(qty) {
+    const actualQty = Math.min(qty, inventory.mysteryBoxes);
+    if (actualQty <= 0) return [];
+    const rolls = [];
+    for (let i = 0; i < actualQty; i++) rolls.push(rollMysteryBoxOnce());
+
+    let goldGain = 0;
+    const invGains = {};
+    let teleportGain = 0;
+    let autoLevelUpCount = 0;
+    let highTierGain = 0;
+    const logLines = [];
+    const resultLines = [];
+    rolls.forEach((r) => {
+      if (r.kind === "gold") {
+        goldGain += r.amount;
+      } else if (r.kind === "inventory") {
+        invGains[r.field] = (invGains[r.field] || 0) + 1;
+      } else if (r.kind === "teleportStone") {
+        teleportGain += 1;
+        highTierGain += 1;
+      } else if (r.kind === "autoLevelUp") {
+        autoLevelUpCount += 1;
+        highTierGain += 1;
+      }
+      const lines = r.logLines || [r.logLine];
+      logLines.push(...lines.map((l) => `[System]: ${l}`));
+      resultLines.push(lines[lines.length - 1]);
+    });
+
+    setInventory((prev) => {
+      const next = { ...prev, mysteryBoxes: prev.mysteryBoxes - actualQty, gold: prev.gold + goldGain, teleportStones: prev.teleportStones + teleportGain };
+      Object.entries(invGains).forEach(([field, count]) => {
+        next[field] = (next[field] || 0) + count;
+      });
+      return next;
+    });
+    if (goldGain > 0) setGoldEarnedTotal((prev) => prev + goldGain);
+    if (highTierGain > 0) setHighTierDropCount((prev) => prev + highTierGain);
+    if (autoLevelUpCount > 0) {
+      const fromLevel = level;
+      setLevel(fromLevel + autoLevelUpCount);
+      const newPending = [];
+      for (let i = 0; i < autoLevelUpCount; i++) {
+        newPending.push({ fromLevel: fromLevel + i, toLevel: fromLevel + i + 1 });
+      }
+      setPendingLevelUps((prev) => [...prev, ...newPending]);
+    }
+    pushLog(logLines);
+    return resultLines;
+  }
+
+  // Single-box pure resolver for an unopened Dungeon Lootbox — 30/70 gear/consumable
+  // split (or the box's own boosted gearChance, if a Drop Rate Boost was applied to the
+  // run that dropped it) against that box's stored domainKey/tierKey. No state touched.
+  function resolveDungeonLootboxBox(box) {
+    const isGear = Math.random() < box.gearChance;
+    if (isGear) {
+      const item = rollDungeonLootbox(box.domainKey, box.tierKey);
+      return { kind: "gear", item, logLine: `Dungeon Lootbox — ${equipmentItemLabel(item)}.` };
+    }
+    const picked = pickWeighted(CONSUMABLE_BOOST_ROLL_POOL);
+    return {
+      kind: "consumable",
+      type: picked.type,
+      tier: picked.tier,
+      logLine: `Dungeon Lootbox — ${consumableBoostLabel(picked.type, picked.tier)}.`,
+    };
+  }
+
+  // Opens `qty` banked Dungeon Lootboxes (FIFO — oldest first) as `qty` INDEPENDENT
+  // resolutions, each against its OWN stored domain/tier/gearChance — never a single
+  // roll scaled up. Clamps qty to however many are actually banked.
+  function openDungeonLootboxesBatch(qty) {
+    const actualQty = Math.min(qty, unopenedDungeonLootboxes.length);
+    if (actualQty <= 0) return [];
+    const boxesToOpen = unopenedDungeonLootboxes.slice(0, actualQty);
+    const results = boxesToOpen.map(resolveDungeonLootboxBox);
+    const gearItems = results.filter((r) => r.kind === "gear").map((r) => r.item);
+    if (gearItems.length > 0) setGearInventory((prev) => [...prev, ...gearItems]);
+    const consumableResults = results.filter((r) => r.kind === "consumable");
+    if (consumableResults.length > 0) {
+      setInventory((prev) => {
+        const nextBoosts = { ...prev.consumableBoosts };
+        consumableResults.forEach((r) => {
+          nextBoosts[r.type] = { ...nextBoosts[r.type], [r.tier]: nextBoosts[r.type][r.tier] + 1 };
+        });
+        return { ...prev, consumableBoosts: nextBoosts };
+      });
+    }
+    setUnopenedDungeonLootboxes((prev) => prev.slice(actualQty));
+    pushLog(results.map((r) => `[System]: ${r.logLine}`));
+    return results.map((r) => r.logLine);
+  }
+
+  // Opens `qty` banked Equipment Lootboxes as `qty` INDEPENDENT rolls (not one roll
+  // scaled up), same convention as Mystery Box/Dungeon Lootbox. Simpler than Dungeon
+  // Lootbox's batch since there's no per-box domain/tier metadata to carry — every
+  // Equipment Lootbox resolves against the same flat EQUIPMENT_LOOTBOX_TIER_WEIGHTS.
+  function openEquipmentLootboxesBatch(qty) {
+    const actualQty = Math.min(qty, inventory.equipmentLootbox);
+    if (actualQty <= 0) return [];
+    const results = [];
+    for (let i = 0; i < actualQty; i++) results.push(resolveEquipmentLootboxBox());
+    setGearInventory((prev) => [...prev, ...results.map((r) => r.item)]);
+    setInventory((prev) => ({ ...prev, equipmentLootbox: prev.equipmentLootbox - actualQty }));
+    pushLog(results.map((r) => `[System]: ${r.logLine}`));
+    return results.map((r) => r.logLine);
+  }
+
+  // Skips the front N penalties (N = qty) — each application advances the queue one
+  // step, same as clearPenalty, starting the next queued entry's countdown fresh.
+  // Clamped to however many are actually queued — using more than that would just
+  // waste stones with no effect, so the picker itself caps selectable qty the same way.
+  function useTeleportStoneBatch(qty) {
+    const actualQty = Math.min(qty, inventory.teleportStones, penaltyQueue.length);
+    if (actualQty <= 0) return;
+    setInventory((prev) => ({ ...prev, teleportStones: prev.teleportStones - actualQty }));
     setPenaltyQueue((prev) => {
-      const next = prev.slice(1);
+      const next = prev.slice(actualQty);
       setPenaltyDeadline(next.length > 0 ? Date.now() + next[0].durationSeconds * 1000 : null);
       return next;
     });
     pushLog([
-      "[System]: Teleportation Stone used.",
-      "[System]: Penalty bypassed. App access restored.",
+      `[System]: Teleportation Stone used × ${actualQty}.`,
+      `[System]: ${actualQty} penalt${actualQty === 1 ? "y" : "ies"} bypassed. App access restored.`,
     ]);
   }
 
-  function spendBonusStatPoint() {
-    if (inventory.bonusStatPoints <= 0) return;
+  // Spends `qty` Bonus Stat Points as `qty` separate +1 awards to the chosen domain.
+  function spendBonusStatPointBatch(qty) {
+    const actualQty = Math.min(qty, inventory.bonusStatPoints);
+    if (actualQty <= 0) return;
     const domain = DOMAINS.find((d) => d.key === spendBonusDomain);
-    setInventory((prev) => ({ ...prev, bonusStatPoints: prev.bonusStatPoints - 1 }));
-    setDomainStats((prev) => ({ ...prev, [spendBonusDomain]: prev[spendBonusDomain] + 1 }));
+    setInventory((prev) => ({ ...prev, bonusStatPoints: prev.bonusStatPoints - actualQty }));
+    setDomainStats((prev) => ({ ...prev, [spendBonusDomain]: prev[spendBonusDomain] + actualQty }));
     setDomainReceivedPointSinceCycle((prev) => ({ ...prev, [spendBonusDomain]: true }));
-    pushLog([`[System]: Bonus Stat Point spent — ${domain.label} +1.`]);
+    pushLog([`[System]: Bonus Stat Point spent × ${actualQty} — ${domain.label} +${actualQty}.`]);
+  }
+
+  // ============================================================================
+  // CONSUMABLE + LOOTBOX USAGE — universal Confirm/Amount flow. One generic pair of
+  // modals (usageConfirm -> usageComplete) shared by every item below rather than
+  // bespoke modals per item, driven by a small descriptor opened via openUsageConfirm.
+  // XP Booster and Hairstyle Change are included for a consistent Confirm step, but
+  // their maxQty is capped at 1 — both are single-flag "armed" mechanics (xpBoostActive,
+  // hairstyleEditUnlocked), not stacking counters, so "use 3" has no well-defined
+  // meaning for them the way it does for HV Catalyst or a lootbox roll. Flagged in
+  // patch notes rather than silently building a broken 3x-apply for these two.
+  // ============================================================================
+  function usageOwnedCount(itemKey) {
+    if (itemKey === "mysteryBoxes") return inventory.mysteryBoxes;
+    if (itemKey === "equipmentLootboxes") return inventory.equipmentLootbox;
+    if (itemKey === "dungeonLootboxes") return unopenedDungeonLootboxes.length;
+    if (itemKey === "hvCatalysts") return inventory.hvCatalysts;
+    if (itemKey === "bonusStatPoints") return inventory.bonusStatPoints;
+    if (itemKey === "teleportStones") return Math.min(inventory.teleportStones, penaltyQueue.length);
+    if (itemKey === "xpBoosters") return xpBoostActive ? 0 : Math.min(inventory.xpBoosters, 1);
+    if (itemKey === "hairstyleChanges") return hairstyleEditUnlocked ? 0 : Math.min(inventory.hairstyleChanges, 1);
+    return 0;
+  }
+
+  function getUsageQty(itemKey) {
+    const maxQty = Math.max(usageOwnedCount(itemKey), 1);
+    return Math.max(1, Math.min(usageQty[itemKey] || 1, maxQty));
+  }
+
+  function setUsageQtyFor(itemKey, updater) {
+    setUsageQty((prev) => ({ ...prev, [itemKey]: updater(getUsageQty(itemKey)) }));
+  }
+
+  function openUsageConfirm(itemKey, label, previewFn) {
+    const owned = usageOwnedCount(itemKey);
+    if (owned <= 0) return;
+    const qty = getUsageQty(itemKey);
+    setUsageConfirm({ itemKey, label, qty, previewLines: previewFn(qty) });
+  }
+
+  function openMysteryBoxUseConfirm() {
+    openUsageConfirm("mysteryBoxes", "Mystery Box", (qty) => [
+      `Opening ${qty}x Mystery Box`,
+      `${qty} individual roll${qty > 1 ? "s" : ""}`,
+    ]);
+  }
+  function openDungeonLootboxUseConfirm() {
+    openUsageConfirm("dungeonLootboxes", "Dungeon Lootbox", (qty) => [
+      `Opening ${qty}x Dungeon Lootbox`,
+      `${qty} individual roll${qty > 1 ? "s" : ""} — gear or Consumable Boost each`,
+    ]);
+  }
+  function openEquipmentLootboxUseConfirm() {
+    openUsageConfirm("equipmentLootboxes", "Equipment Lootbox", (qty) => [
+      `Opening ${qty}x Equipment Lootbox`,
+      `${qty} individual roll${qty > 1 ? "s" : ""}`,
+    ]);
+  }
+  function openHvCatalystUseConfirm() {
+    const domain = DOMAINS.find((d) => d.key === spendCatalystDomain);
+    openUsageConfirm("hvCatalysts", "HV Catalyst", (qty) => [
+      `${qty}x HV Catalyst — grants ${domain.label} +2 HV × ${qty}`,
+    ]);
+  }
+  function openBonusStatPointUseConfirm() {
+    const domain = DOMAINS.find((d) => d.key === spendBonusDomain);
+    openUsageConfirm("bonusStatPoints", "Bonus Stat Point", (qty) => [
+      `${qty}x Bonus Stat Point — grants ${domain.label} +1 × ${qty}`,
+    ]);
+  }
+  function openTeleportStoneUseConfirm() {
+    openUsageConfirm("teleportStones", "Teleportation Stone", (qty) => [
+      `${qty}x Teleportation Stone — bypasses ${qty} queued penalt${qty === 1 ? "y" : "ies"}`,
+    ]);
+  }
+  function openXpBoosterUseConfirm() {
+    openUsageConfirm("xpBoosters", "XP Booster", () => ["Activates — doubles the next XP grant"]);
+  }
+  function openHairstyleChangeUseConfirm() {
+    openUsageConfirm("hairstyleChanges", "Hairstyle Change", () => ["Unlocks the hairstyle picker"]);
+  }
+
+  function cancelUsage() {
+    setUsageConfirm(null);
+  }
+
+  // Confirm step, dispatched by itemKey to the matching batch resolver. Each branch
+  // resets that item's quantity selector back to 1 and opens the Completion screen.
+  function confirmUsageAction() {
+    if (!usageConfirm) return;
+    const { itemKey, qty, label } = usageConfirm;
+    setUsageConfirm(null);
+    let resultLines = [];
+    if (itemKey === "mysteryBoxes") {
+      resultLines = openMysteryBoxesBatch(qty);
+    } else if (itemKey === "dungeonLootboxes") {
+      resultLines = openDungeonLootboxesBatch(qty);
+    } else if (itemKey === "equipmentLootboxes") {
+      resultLines = openEquipmentLootboxesBatch(qty);
+    } else if (itemKey === "hvCatalysts") {
+      const domain = DOMAINS.find((d) => d.key === spendCatalystDomain);
+      spendHvCatalystBatch(qty);
+      resultLines = [`${domain.label} +${qty * 2} HV`];
+    } else if (itemKey === "bonusStatPoints") {
+      const domain = DOMAINS.find((d) => d.key === spendBonusDomain);
+      spendBonusStatPointBatch(qty);
+      resultLines = [`${domain.label} +${qty} stat point${qty > 1 ? "s" : ""}`];
+    } else if (itemKey === "teleportStones") {
+      const actualQty = Math.min(qty, inventory.teleportStones, penaltyQueue.length);
+      useTeleportStoneBatch(qty);
+      resultLines = [`${actualQty} penalt${actualQty === 1 ? "y" : "ies"} bypassed`];
+    } else if (itemKey === "xpBoosters") {
+      activateXpBoost();
+      resultLines = ["XP Booster activated — next XP grant doubled"];
+    } else if (itemKey === "hairstyleChanges") {
+      useHairstyleChange();
+      resultLines = ["Hairstyle picker unlocked"];
+    }
+    setUsageQty((prev) => ({ ...prev, [itemKey]: 1 }));
+    setUsageComplete({ label, qty, resultLines });
+  }
+
+  function closeUsageComplete() {
+    setUsageComplete(null);
   }
 
   // ============================================================================
@@ -4954,13 +5485,29 @@ function SystemEngine() {
           if (s.inventory) {
             setInventory({
               dungeonKeys: 0,
+              equipmentLootbox: 0,
               ...s.inventory,
               domainKeys: {
                 ...Object.fromEntries(DOMAINS.map((d) => [d.key, 0])),
                 ...(s.inventory.domainKeys || {}),
               },
+              // Merged 2 levels deep (type, then tier within type) so a save from
+              // before the 12-item Consumable Boost split doesn't lose individual
+              // counters to a blanket overwrite, same reasoning as domainKeys above.
+              consumableBoosts: Object.fromEntries(
+                CONSUMABLE_BOOST_TYPES.map((t) => [
+                  t.key,
+                  {
+                    minor: 0,
+                    major: 0,
+                    superior: 0,
+                    ...((s.inventory.consumableBoosts && s.inventory.consumableBoosts[t.key]) || {}),
+                  },
+                ])
+              ),
             });
           }
+          if (s.unopenedDungeonLootboxes) setUnopenedDungeonLootboxes(s.unopenedDungeonLootboxes);
           if (s.keyPurchasesToday) {
             setKeyPurchasesToday({
               universal: 0,
@@ -5099,6 +5646,7 @@ function SystemEngine() {
       equipment,
       shopGearStock,
       shopDomainKeyToday,
+      unopenedDungeonLootboxes,
       checked,
       questComplete,
       dailyQuestDeadline,
@@ -5146,6 +5694,7 @@ function SystemEngine() {
     equipment,
     shopGearStock,
     shopDomainKeyToday,
+    unopenedDungeonLootboxes,
     checked,
     questComplete,
     dailyQuestDeadline,
@@ -5171,6 +5720,7 @@ function SystemEngine() {
     setDomainQuestCount(Object.fromEntries(DOMAINS.map((d) => [d.key, 0])));
     setInventory({
       mysteryBoxes: 0,
+      equipmentLootbox: 0,
       teleportStones: 0,
       bonusStatPoints: 0,
       xpBoosters: 0,
@@ -5178,8 +5728,10 @@ function SystemEngine() {
       hairstyleChanges: 0,
       dungeonKeys: 0,
       domainKeys: Object.fromEntries(DOMAINS.map((d) => [d.key, 0])),
+      consumableBoosts: defaultConsumableBoosts(),
       gold: 0,
     });
+    setUnopenedDungeonLootboxes([]);
     setKeyPurchasesToday({
       universal: 0,
       ...Object.fromEntries(DOMAINS.map((d) => [d.key, 0])),
@@ -5866,10 +6418,12 @@ function SystemEngine() {
     const fatigueChange = ENCOUNTER_FATIGUE[tier] * (isMainQuest ? MAIN_QUEST_ENCOUNTER_FATIGUE_MULT : 1);
     if (encounter.domain === "financial" && tier === "win") {
       const picked = pickWeighted(isMainQuest ? MAIN_QUEST_FINANCIAL_ITEM_POOL : ENCOUNTER_ITEM_POOL);
-      itemReward =
-        picked.field === "equipmentLootbox"
-          ? { type: "equipment", item: rollEquipmentLootbox(), label: picked.label }
-          : { type: "inventory", field: picked.field, label: picked.label };
+      // Equipment Lootbox now banks like every other lootbox (resolve-on-open, not
+      // resolve-on-win) — a flat inventory counter, same shape as Mystery Box/Dungeon
+      // Lootbox, instead of the old special-cased "equipment" itemReward type that
+      // rolled and granted a concrete item immediately. See resolveEquipmentLootboxBox
+      // + openEquipmentLootboxesBatch for the actual roll, now deferred to open time.
+      itemReward = { field: picked.field, label: picked.label };
       goldChange = 0;
       xpChange = 0; // unchanged by isMainQuest — Financial Win stays item-only either way
     }
@@ -5932,16 +6486,10 @@ function SystemEngine() {
       isMainQuest: activeEncounter.isMainQuest,
     });
     if (result.itemReward) {
-      if (result.itemReward.type === "equipment") {
-        // Equipment Lootbox — goes into gearInventory like every other equipment
-        // source, NOT a simple inventory-count increment.
-        setGearInventory((prev) => [...prev, result.itemReward.item]);
-      } else {
-        setInventory((prev) => ({
-          ...prev,
-          [result.itemReward.field]: prev[result.itemReward.field] + 1,
-        }));
-      }
+      setInventory((prev) => ({
+        ...prev,
+        [result.itemReward.field]: prev[result.itemReward.field] + 1,
+      }));
     } else if (result.goldChange !== 0) {
       setInventory((prev) => ({ ...prev, gold: Math.max(0, prev.gold + result.goldChange) }));
       if (result.goldChange > 0) {
@@ -5954,9 +6502,7 @@ function SystemEngine() {
     // Shop purchases are documented as the "only source" of.
     addFatigue(result.fatigueChange);
     const rewardLine = result.itemReward
-      ? `[System]: Received ${
-          result.itemReward.type === "equipment" ? equipmentItemLabel(result.itemReward.item) : result.itemReward.label
-        }.`
+      ? `[System]: Received ${result.itemReward.label}.`
       : `[System]: ${result.goldChange >= 0 ? "+" : ""}${result.goldChange} Gold.`;
     pushLog([
       `[System]: ${activeEncounter.encounter.label} — ${result.text}`,
@@ -6063,11 +6609,20 @@ function SystemEngine() {
 
   // Opens the confirmation screen — does NOT spend a key or start the run. Only reached
   // from an already-unlocked tier button (canAttemptDungeon already passed), so the
-  // preview here is guaranteed satisfiable.
+  // preview here is guaranteed satisfiable. Boost selection always starts fresh (no
+  // carry-over from a cancelled previous attempt).
   function requestDungeonEntry(domainKey, tierKey) {
     const tier = DUNGEON_TIERS.find((t) => t.key === tierKey);
     if (!tier) return;
     setPendingDungeonEntry({ domainKey, tier });
+    setDungeonBoostSelection({ tellChance: null, resolve: null, hearts: null, dropRate: null });
+  }
+
+  // Toggles one boost type's tier selection in the pending confirmation — picking the
+  // already-selected tier again deselects it (None). Only ever called for a tier the
+  // player actually owns (the picker UI itself only renders owned tiers as options).
+  function selectDungeonBoostTier(type, tier) {
+    setDungeonBoostSelection((prev) => ({ ...prev, [type]: prev[type] === tier ? null : tier }));
   }
 
   function cancelDungeonEntry() {
@@ -6077,11 +6632,28 @@ function SystemEngine() {
   function confirmDungeonEntry() {
     if (!pendingDungeonEntry) return;
     const { domainKey, tier } = pendingDungeonEntry;
+    const boosts = dungeonBoostSelection;
     setPendingDungeonEntry(null);
-    startDungeonRun(domainKey, tier.key, false); // existing key-consumption + entry logic, unchanged
+    // Consume the selected boosts now, atomically alongside the key spend inside
+    // startDungeonRun — a boost picked here is spent whether or not the run ultimately
+    // succeeds, same convention as the key cost.
+    setInventory((prev) => {
+      const next = { ...prev, consumableBoosts: { ...prev.consumableBoosts } };
+      CONSUMABLE_BOOST_TYPES.forEach((t) => {
+        const pickedTier = boosts[t.key];
+        if (pickedTier) {
+          next.consumableBoosts = {
+            ...next.consumableBoosts,
+            [t.key]: { ...next.consumableBoosts[t.key], [pickedTier]: next.consumableBoosts[t.key][pickedTier] - 1 },
+          };
+        }
+      });
+      return next;
+    });
+    startDungeonRun(domainKey, tier.key, false, boosts); // existing key-consumption + entry logic, unchanged
   }
 
-  function startDungeonRun(domainKey, tierKey, debugForced) {
+  function startDungeonRun(domainKey, tierKey, debugForced, boosts) {
     const tier = DUNGEON_TIERS.find((t) => t.key === tierKey);
     if (!tier) return;
     if (!debugForced) {
@@ -6101,7 +6673,14 @@ function SystemEngine() {
     }
     const [roomMin, roomMax] = DUNGEON_ROOM_COUNT_RANGE[tierKey];
     const totalRooms = dungeonRandomInt(roomMin, roomMax);
-    const resolveMax = Object.values(domainStats).reduce((sum, v) => sum + (v || 0), 0) + level * 2;
+    let resolveMax = Object.values(domainStats).reduce((sum, v) => sum + (v || 0), 0) + level * 2;
+    // Resolve Boost — fractional increase to the pool for this run only, applied once
+    // here at entry (not re-checked later, same "snapshot at entry" convention the
+    // Two-Pronged Hearts bonus already uses for its own Resolve% read).
+    const activeBoosts = boosts || { tellChance: null, resolve: null, hearts: null, dropRate: null };
+    if (activeBoosts.resolve) {
+      resolveMax = Math.round(resolveMax * (1 + CONSUMABLE_BOOST_EFFECTS.resolve[activeBoosts.resolve]));
+    }
     const firstRoom = generateDungeonRoom(domainKey);
     setActiveDungeonRun({
       domainKey,
@@ -6116,6 +6695,8 @@ function SystemEngine() {
       pickedDomainKey: null,
       pickedCost: null,
       phase: "rooms",
+      boosts: activeBoosts, // read later by startDungeonFinalRoomRound (tellChance),
+      // continueAfterDungeonRoom (hearts), and finishDungeonRun (dropRate)
     });
   }
 
@@ -6174,7 +6755,13 @@ function SystemEngine() {
       // Resolve% are both read at this exact moment, per the Two-Pronged Bonus System.
       const armorTier = equipment.armor ? equipment.armor.tier : "none";
       const resolvePercent = activeDungeonRun.resolveMax > 0 ? activeDungeonRun.resolve / activeDungeonRun.resolveMax : 0;
-      const totalHearts = dungeonComputeFinalRoomHearts(armorTier, resolvePercent);
+      // Hearts Boost consumable (if applied to this run) adds flat bonus hearts on top
+      // of the existing Two-Pronged total — additive, not folded into that formula.
+      const heartsBoostBonus =
+        activeDungeonRun.boosts && activeDungeonRun.boosts.hearts
+          ? CONSUMABLE_BOOST_EFFECTS.hearts[activeDungeonRun.boosts.hearts]
+          : 0;
+      const totalHearts = dungeonComputeFinalRoomHearts(armorTier, resolvePercent) + heartsBoostBonus;
       // Boss intro is now its own screen (phase: "finalRoomIntro") with a Start Battle
       // button, rather than sharing the first Attack Select screen — see boss intro
       // screen split. continueFromDungeonIntro() below advances into "finalRoom".
@@ -6214,9 +6801,14 @@ function SystemEngine() {
     const stat = domainStats[baseState.domainKey] || 0;
     const baseTell = Math.min(30, stat * 0.3) + Math.min(20, Math.max(0, stat - 100) * 0.1);
     let tellChance = Math.min(50, baseTell * DUNGEON_TELL_TIER_MULT[baseState.tier.key]);
-    // Trinket's flat bonus is added AFTER the tier cap/multiplier above — the only
-    // kind of bonus that can push past Elite's permanent 35% ceiling, per design.
-    tellChance = Math.min(100, tellChance + equipmentTellChanceBonus());
+    // Trinket's flat bonus AND a Tell Chance Boost consumable (if applied to this run)
+    // are both added AFTER the tier cap/multiplier above — the only kinds of bonus that
+    // can push past Elite's permanent 35% ceiling, per design.
+    const consumableTellBonus =
+      baseState.boosts && baseState.boosts.tellChance
+        ? CONSUMABLE_BOOST_EFFECTS.tellChance[baseState.boosts.tellChance]
+        : 0;
+    tellChance = Math.min(100, tellChance + equipmentTellChanceBonus() + consumableTellBonus);
     const tellTriggered = Math.random() * 100 < tellChance;
     const tellCue = tellTriggered ? pickDungeonBossCue(baseState.boss, opponentMove, baseState.tier.key) : null;
     setActiveDungeonRun({
@@ -6307,12 +6899,23 @@ function SystemEngine() {
         if (stat > 0) setDomainStats((ds) => ({ ...ds, [domainKey]: (ds[domainKey] || 0) + stat }));
       }
 
-      // Dungeon Lootbox — independent 15% roll, Complete only (not Partial/Fail),
-      // independent of maybeGrantEquipmentDrop's quest-completion roll.
-      let lootboxItem = null;
+      // Dungeon Lootbox — guaranteed on Complete (DUNGEON_LOOTBOX_CHANCE = 1.0),
+      // independent of maybeGrantEquipmentDrop's quest-completion roll. Banked
+      // UNOPENED (resolve-on-open) rather than resolved immediately — gear vs
+      // consumable is decided later, in openDungeonLootboxes, against this box's own
+      // gearChance (30% baseline, or boosted if a Drop Rate Boost was applied to this
+      // specific run — self-referential, doesn't affect any other banked box).
+      let lootboxBanked = false;
       if (result === "complete" && Math.random() < DUNGEON_LOOTBOX_CHANCE) {
-        lootboxItem = rollDungeonLootbox(domainKey, tier.key);
-        setGearInventory((prev) => [...prev, lootboxItem]);
+        const dropRateTier = prev.boosts && prev.boosts.dropRate;
+        const gearChance = dropRateTier
+          ? CONSUMABLE_BOOST_EFFECTS.dropRate[dropRateTier]
+          : DUNGEON_LOOTBOX_GEAR_CHANCE;
+        setUnopenedDungeonLootboxes((boxes) => [
+          ...boxes,
+          { id: dungeonLootboxNextId(), domainKey, tierKey: tier.key, gearChance },
+        ]);
+        lootboxBanked = true;
       }
 
       const fatigueGain =
@@ -6325,10 +6928,10 @@ function SystemEngine() {
         result === "fail"
           ? `[System]: No reward. +${fatigueGain} Fatigue.`
           : `[System]: +${xp} XP, +${gold} Gold, +${stat} ${domain.label} stat, +${fatigueGain} Fatigue.`,
-        ...(lootboxItem ? [`[System]: Dungeon Lootbox — ${equipmentItemLabel(lootboxItem)}.`] : []),
+        ...(lootboxBanked ? ["[System]: Dungeon Lootbox banked — open it from Inventory."] : []),
       ]);
 
-      return { ...prev, phase: "result", result, rewardXp: xp, rewardGold: gold, rewardStat: stat, rewardLootbox: lootboxItem };
+      return { ...prev, phase: "result", result, rewardXp: xp, rewardGold: gold, rewardStat: stat, rewardLootboxBanked: lootboxBanked };
     });
   }
 
@@ -7021,7 +7624,7 @@ function SystemEngine() {
 
         {inventory.teleportStones > 0 && (
           <button
-            onClick={useTeleportStone}
+            onClick={() => useTeleportStoneBatch(1)}
             className="mono text-xs mt-3 px-5 py-2.5 rounded border border-[#3DDBD9] bg-[#0F1218] text-[#3DDBD9] hover:bg-[#12151C] transition"
           >
             USE TELEPORTATION STONE ({inventory.teleportStones}) — SKIP PENALTY
@@ -7166,11 +7769,7 @@ function SystemEngine() {
                   </div>
                   <div className="mono text-[10px] mb-4" style={{ color: "#8B94A3" }}>
                     {result.itemReward
-                      ? `Received: ${
-                          result.itemReward.type === "equipment"
-                            ? equipmentItemLabel(result.itemReward.item)
-                            : result.itemReward.label
-                        }`
+                      ? `Received: ${result.itemReward.label}`
                       : `${result.goldChange >= 0 ? "+" : ""}${result.goldChange} Gold`}
                     {result.xpChange > 0 && ` · +${result.xpChange} XP`}
                     {" "}· +{result.fatigueChange} Fatigue
@@ -7339,6 +7938,42 @@ function SystemEngine() {
                   </div>
                 ))}
               </div>
+              {CONSUMABLE_BOOST_TYPES.some((t) =>
+                CONSUMABLE_BOOST_TIERS.some((tier) => inventory.consumableBoosts[t.key][tier] > 0)
+              ) && (
+                <div className="mb-4 text-left">
+                  <div className="mono text-[9px] tracking-widest mb-1" style={{ color: "#8B94A3" }}>
+                    CONSUMABLE BOOSTS — OPTIONAL, ONE PER TYPE
+                  </div>
+                  {CONSUMABLE_BOOST_TYPES.map((t) => {
+                    const ownedTiers = CONSUMABLE_BOOST_TIERS.filter(
+                      (tier) => inventory.consumableBoosts[t.key][tier] > 0
+                    );
+                    if (ownedTiers.length === 0) return null;
+                    return (
+                      <div key={t.key} className="flex items-center gap-1 mb-1 flex-wrap">
+                        <span className="mono text-[9px] w-24 shrink-0" style={{ color: "#D6DCE5" }}>
+                          {t.label}
+                        </span>
+                        {ownedTiers.map((tier) => (
+                          <button
+                            key={tier}
+                            onClick={() => selectDungeonBoostTier(t.key, tier)}
+                            className="mono text-[9px] px-2 py-0.5 rounded border transition"
+                            style={
+                              dungeonBoostSelection[t.key] === tier
+                                ? { border: "1px solid #3DDBD9", color: "#3DDBD9" }
+                                : { border: "1px solid #2A3140", color: "#8B94A3" }
+                            }
+                          >
+                            {CONSUMABLE_BOOST_TIER_LABELS[tier]} ({inventory.consumableBoosts[t.key][tier]})
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
               <div className="flex gap-2 justify-center">
                 <button
                   onClick={confirmDungeonEntry}
@@ -7427,6 +8062,78 @@ function SystemEngine() {
             </div>
             <button
               onClick={closeKeyPurchaseComplete}
+              className="mono text-xs px-5 py-2 rounded transition"
+              style={{ border: "1px solid #3DDBD9", color: "#3DDBD9" }}
+            >
+              CONTINUE
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Consumable + Lootbox Usage — Confirmation step. Shared by every item in the
+          Inventory panel's usage flow (Mystery Box, Dungeon Lootbox, HV Catalyst,
+          Bonus Stat Point, Teleport Stone, XP Booster, Hairstyle Change). Nothing
+          consumed yet; Cancel returns to Inventory with zero changes. */}
+      {usageConfirm && (
+        <div
+          className="fixed inset-0 flex items-center justify-center z-50 p-4"
+          style={{ backgroundColor: "rgba(0,0,0,0.7)" }}
+        >
+          <div
+            className="rounded-md px-6 py-5 max-w-sm w-full text-center"
+            style={{ border: "1px solid #3DDBD9", backgroundColor: "#12151C" }}
+          >
+            <div className="mono text-xs tracking-widest mb-3" style={{ color: "#3DDBD9" }}>
+              CONFIRM {usageConfirm.label.toUpperCase()}
+            </div>
+            <div className="mono text-[10px] mb-4" style={{ color: "#D6DCE5" }}>
+              {usageConfirm.previewLines.map((l, i) => (
+                <div key={i}>{l}</div>
+              ))}
+            </div>
+            <div className="flex gap-2 justify-center">
+              <button
+                onClick={confirmUsageAction}
+                className="mono text-xs px-4 py-2 rounded transition"
+                style={{ border: "1px solid #3DDBD9", color: "#3DDBD9" }}
+              >
+                CONFIRM
+              </button>
+              <button
+                onClick={cancelUsage}
+                className="mono text-xs px-4 py-2 rounded border transition"
+                style={{ borderColor: "#2A3140", color: "#8B94A3" }}
+              >
+                CANCEL
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Consumable + Lootbox Usage — Completion step. Each roll/application is listed
+          separately (not merged into one line), matching "resolved on its own" for
+          lootboxes. Continue dismisses back to Inventory. */}
+      {usageComplete && (
+        <div
+          className="fixed inset-0 flex items-center justify-center z-50 p-4"
+          style={{ backgroundColor: "rgba(0,0,0,0.7)" }}
+        >
+          <div
+            className="rounded-md px-6 py-5 max-w-sm w-full text-center"
+            style={{ border: "1px solid #3DDBD9", backgroundColor: "#12151C" }}
+          >
+            <div className="mono text-xs tracking-widest mb-3" style={{ color: "#3DDBD9" }}>
+              {usageComplete.label.toUpperCase()} × {usageComplete.qty} — RESULTS
+            </div>
+            <div className="mono text-[10px] mb-4 space-y-0.5" style={{ color: "#8B94A3" }}>
+              {usageComplete.resultLines.map((l, i) => (
+                <div key={i}>{l}</div>
+              ))}
+            </div>
+            <button
+              onClick={closeUsageComplete}
               className="mono text-xs px-5 py-2 rounded transition"
               style={{ border: "1px solid #3DDBD9", color: "#3DDBD9" }}
             >
@@ -7691,10 +8398,10 @@ function SystemEngine() {
                       : `+${run.rewardXp} XP, +${run.rewardGold} Gold, +${run.rewardStat} ${domain.label} stat.`}
                     {" "}+
                     {run.result === "fail" ? DUNGEON_FATIGUE.retreatOrFail : DUNGEON_FATIGUE.reachedFinalRoom} Fatigue
-                    {run.rewardLootbox && (
+                    {run.rewardLootboxBanked && (
                       <>
                         <br />
-                        <span style={{ color: "#3DDBD9" }}>Dungeon Lootbox: {equipmentItemLabel(run.rewardLootbox)}</span>
+                        <span style={{ color: "#3DDBD9" }}>Dungeon Lootbox banked — open it from Inventory.</span>
                       </>
                     )}
                   </div>
@@ -8150,7 +8857,7 @@ function SystemEngine() {
         ) : (
           inventory.hairstyleChanges > 0 && (
             <button
-              onClick={useHairstyleChange}
+              onClick={openHairstyleChangeUseConfirm}
               className="mono text-xs px-4 py-2 rounded border border-[#2A3140] hover:border-[#3DDBD9] transition text-[#D6DCE5] mt-3"
             >
               USE HAIRSTYLE CHANGE ({inventory.hairstyleChanges})
@@ -9055,10 +9762,19 @@ function SystemEngine() {
                 Mystery Box (force 1)
               </button>
               <button
+                onClick={() => {
+                  setInventory((prev) => ({ ...prev, equipmentLootbox: prev.equipmentLootbox + 1 }));
+                  pushLog(["[Debug]: Equipment Lootbox banked — open it from Inventory."]);
+                }}
+                className="mono text-[9px] px-2 py-1 rounded border border-[#2A3140] hover:border-[#3DDBD9] transition text-[#D6DCE5]"
+              >
+                Equipment Lootbox (force 1, banked)
+              </button>
+              <button
                 onClick={grantEquipmentDropRoll}
                 className="mono text-[9px] px-2 py-1 rounded border border-[#2A3140] hover:border-[#3DDBD9] transition text-[#D6DCE5]"
               >
-                Equipment Lootbox (force roll)
+                Quest-Completion Equipment Drop (force roll)
               </button>
             </div>
             <div className="mono text-[9px] text-[#8B94A3] mb-1">
@@ -9085,6 +9801,18 @@ function SystemEngine() {
                 className="mono text-[9px] px-2 py-1 rounded border border-[#2A3140] hover:border-[#3DDBD9] transition text-[#D6DCE5]"
               >
                 Named Drop (forced)
+              </button>
+              <button
+                onClick={() => {
+                  setUnopenedDungeonLootboxes((prev) => [
+                    ...prev,
+                    { id: dungeonLootboxNextId(), domainKey: debugStatDomain, tierKey: "elite", gearChance: DUNGEON_LOOTBOX_GEAR_CHANCE },
+                  ]);
+                  pushLog([`[Debug]: Dungeon Lootbox banked (Elite, ${Math.round(DUNGEON_LOOTBOX_GEAR_CHANCE * 100)}% gear odds) — open it from Inventory.`]);
+                }}
+                className="mono text-[9px] px-2 py-1 rounded border border-[#2A3140] hover:border-[#3DDBD9] transition text-[#D6DCE5]"
+              >
+                Dungeon Lootbox — Bank Unopened (test open flow)
               </button>
             </div>
           </div>

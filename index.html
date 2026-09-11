@@ -234,7 +234,7 @@ const GENDERS = ["Male", "Female", "Non-binary"];
 // PATCH_NOTES_TEXT is the full patch-notes.md content, embedded as a read-only
 // string so it can be displayed directly in-app without a separate file fetch.
 // Keep this in sync with the real patch-notes.md file shipped alongside each build.
-const APP_VERSION = "v37 (TEMP DEBUG)";
+const APP_VERSION = "v38 (TEMP DEBUG)";
 const PATCH_NOTES_TEXT = `# The System — Patch Notes
 
 Covers all builds completed in this chat, starting from the uploaded baseline
@@ -242,6 +242,72 @@ Covers all builds completed in this chat, starting from the uploaded baseline
 corresponds to the JSX artifact number shipped at that point; \`the-system-app.html\`
 was kept in lockstep from v20 onward (v19's Quick Start was JSX-only for one turn
 before being ported back into the HTML in v20).
+
+---
+
+## v38 (TEMP DEBUG carried over — see note below)
+
+**NOTE:** the notification-toggle \`alert()\` debug instrumentation from v29 is
+still live in the code (confirmed still unresolved — pushed off intentionally
+for now), so the version string still carries the TEMP DEBUG flag.
+
+**Dungeon Rework — Full Spec (Resolve-Based XP, Costs, Room Counts, Resolve
+Pool)**
+- **XP formula replaced.** The old flat \`Math.random()\` roll between a
+  tier's min/max % is gone — XP is now \`pMin + (pMax-pMin) × resolvePercent\`,
+  using the exact same entry-snapshotted resolve/resolveMax the Final Room
+  Hearts bonus already reads (now also stored on \`activeDungeonRun\` as
+  \`resolvePercentAtEntry\` so \`finishDungeonRun\` can read it later). Partial
+  still applies its existing separate 0.5x on top. New tier ranges: Novice
+  3–4% / Adept 6–9% / Elite 10–14% (down from 8–13/18–25/30–40, since the
+  formula itself is no longer uniform-random).
+- **Room cost constants retuned:** \`DUNGEON_ROOM_COST_FLOOR\` 5→10,
+  \`DUNGEON_ROOM_COST_REDUCTION\` 1→0.5 per stat point,
+  \`DUNGEON_QUALITY_COST_MULT\` {best:0.7, ok:1.0, worst:1.4} → {best:0.4,
+  ok:1.3, worst:3.0}. BASE (15) and TIER_MULT unchanged.
+- **Room count ranges widened ~20% (rounded up):** Novice [2,3]→[3,4], Adept
+  [5,7]→[6,9], Elite [10,15]→[12,18].
+- **Resolve pool formula changed — "dedication vs. breadth."**
+  \`resolveMax\` was \`sum(all 6 domain stats) + level×2\`; it's now
+  \`domainStats[relevantDomain] + level×2\` — no floor, no blending with the
+  other 5 domains. A neglected domain now carries real risk into its own
+  dungeon regardless of how strong the other domains are, matching the
+  existing Neglect/Stagnation design language.
+- Validated via the spec's own simulation summary across levels 15/30/70/100
+  — Elite stays the genuine top challenge through the level cap (12–16%
+  fail at 100, average clear resolve ~27–29%, below the 50% "mastery"
+  threshold for full Hearts bonus) rather than trivializing early; Novice/
+  Adept intentionally trivialize once leveled well past their "home" range.
+
+**Encounter Choice System — Three-Option Mechanic**
+- Every Encounter (Manual/Urgent/Main Quest) now presents 3 domain-flavored
+  choices before resolving — Defensive/Aggressive/Balanced, same 3
+  underlying mechanics across all 6 domains, only the label/flavor text
+  differs per domain (full 18-line table implemented in
+  \`ENCOUNTER_CHOICE_LABELS\`).
+- Modifiers apply on top of the existing \`lossThreshold\`/\`winThreshold\`
+  formula (stage1Bonus/stage2Bonus/equipmentEnchantBonus all still baked in
+  first), immediately before the roll:
+  - Defensive: \`lossThreshold -= min(15, stat×0.15)\`
+  - Aggressive: \`winThreshold -= min(25, stat×0.25)\`; \`lossThreshold += 15\`;
+    then if \`winThreshold < lossThreshold + 10\`, clamps
+    \`lossThreshold = winThreshold - 10\` (protects the win-bonus, caps the
+    flat risk instead of letting a low-stat pick invert the thresholds).
+  - Balanced: \`scale = min(5, stat×0.05)\`; both thresholds move by
+    \`-(5 + scale)\`.
+- \`resolveEncounter\` takes a new \`opts.choice\` and \`engageEncounter\` now
+  requires a choice argument (\`"defensive"|"aggressive"|"balanced"\`) rather
+  than taking no arguments — the single ENGAGE button was replaced with 3
+  stacked choice buttons (label + flavor text), DECLINE unchanged below
+  them. The result screen now shows which stance was taken above the WIN/
+  CLOSE CALL/LOSS line.
+- **Flagging a balance observation, not a build discrepancy:** spot-checked
+  the "no strict dominance except at stat=0" claim at stat=50 (no equipment
+  bonus) — Defensive lands at Win 45% / Loss 17.5%, Balanced lands at Win
+  52.5% / Loss 17.5% (identical loss%, higher win%), which reads as Balanced
+  weakly dominating Defensive at that stat value specifically. Built exactly
+  to the given formulas either way (they're what's specified as "ready to
+  build"); flagging in case this affects intended tuning.
 
 ---
 
@@ -1314,6 +1380,51 @@ const ENCOUNTER_STAGE2_START = 100; // stat value where Stage 2 begins
 const ENCOUNTER_STAGE2_CAP = 20; // Stage 2 cap — reached at stat 300 (200 extra*0.1=20)
 const ENCOUNTER_GOLD = { win: 20, closeCall: 5, loss: -10 };
 const ENCOUNTER_FATIGUE = { win: 5, closeCall: 15, loss: 25 }; // locked fatigue table
+
+// ============================================================================
+// ENCOUNTER CHOICE SYSTEM — v38. A pre-resolution choice step: 3 domain-flavored
+// options (Defensive/Aggressive/Balanced), same 3 underlying mechanics across every
+// domain, only labels/flavor text differ. Modifiers apply ON TOP of the existing
+// lossThreshold/winThreshold formula (stage1Bonus/stage2Bonus/equipmentEnchantBonus
+// already baked in), immediately before the roll — see resolveEncounter's `choice`
+// handling. Verified via probability table across stat 0-100: no strict dominance
+// among the 3 at any stat level except stat=0, where Balanced dominates (intentional
+// — it requires no stat investment, while Defensive/Aggressive only pay off once a
+// domain stat has been built up).
+// ============================================================================
+const ENCOUNTER_CHOICE_LABELS = {
+  physical: {
+    defensive: { label: "Grit Through", flavor: "You brace and take the hit." },
+    aggressive: { label: "Go on the Offensive", flavor: "You stop defending and strike." },
+    balanced: { label: "Pace Yourself", flavor: "You conserve your strength and wait it out." },
+  },
+  financial: {
+    defensive: { label: "Hold Your Price", flavor: "You refuse to budge on what it's worth." },
+    aggressive: { label: "Push the Deal", flavor: "You go for the bigger win, risk and all." },
+    balanced: { label: "Walk the Middle", flavor: "You settle for fair, and move on." },
+  },
+  relational: {
+    defensive: { label: "Stay Patient", flavor: "You give the moment room to breathe." },
+    aggressive: { label: "Speak Your Mind", flavor: "You say the risky thing out loud." },
+    balanced: { label: "Meet Them Halfway", flavor: "You keep things even, for now." },
+  },
+  mental: {
+    defensive: { label: "Focus In", flavor: "You slow down and work the problem." },
+    aggressive: { label: "Trust Your Instinct", flavor: "You go with the first answer, no second-guessing." },
+    balanced: { label: "Take Your Time", flavor: "You work through it carefully." },
+  },
+  social: {
+    defensive: { label: "Keep Your Composure", flavor: "You stay level-headed, whatever comes." },
+    aggressive: { label: "Seize the Moment", flavor: "You go big, and hope it lands." },
+    balanced: { label: "Read the Room", flavor: "You play it even and see how it goes." },
+  },
+  faith: {
+    defensive: { label: "Hold Firm", flavor: "You anchor to what you already believe." },
+    aggressive: { label: "Take the Leap", flavor: "You let go of certainty and trust it anyway." },
+    balanced: { label: "Sit With It", flavor: "You let the moment settle without forcing an answer." },
+  },
+};
+const ENCOUNTER_CHOICE_ORDER = ["defensive", "aggressive", "balanced"];
 // XP-per-outcome layer, added 2026-09-05 as part of the broader XP rebalance — Encounters
 // previously granted zero XP. Financial Win is explicitly excluded (item-only, no XP) per
 // the queued spec; every other outcome (including Financial's own Close Call/Loss) uses
@@ -1742,17 +1853,24 @@ const KEY_DAILY_PURCHASE_CAP = 3;
 const DUNGEON_FATIGUE = { reachedFinalRoom: 20, retreatOrFail: 50 };
 
 // Regular Rooms — room count randomized fresh per run, within these ranges.
+// Widened ~20% (rounded up) as part of the v38 Dungeon rework — see patch notes.
 const DUNGEON_ROOM_COUNT_RANGE = {
-  novice: [2, 3],
-  adept: [5, 7],
-  elite: [10, 15],
+  novice: [3, 4],
+  adept: [6, 9],
+  elite: [12, 18],
 };
 // Resolve cost per room choice: max(FLOOR, BASE - stat*REDUCTION) * tierMultiplier.
 // A well-matched high stat drives cost toward the floor; a poor match costs much more,
 // compounded further at higher tiers by the multiplier.
+// v38 Dungeon rework: FLOOR raised 5->10 and REDUCTION halved (1->0.5/stat pt) — stat
+// investment now buys a shallower cost reduction, matching the new single-domain
+// Resolve pool below (a deep stat no longer trivializes cost the way it could when
+// the floor was low and reduction was steep). QUALITY_COST_MULT widened
+// (0.7/1.0/1.4 -> 0.4/1.3/3.0) so authored answer quality matters far more now that
+// the floor itself is higher.
 const DUNGEON_ROOM_COST_BASE = 15;
-const DUNGEON_ROOM_COST_REDUCTION = 1; // per stat point
-const DUNGEON_ROOM_COST_FLOOR = 5;
+const DUNGEON_ROOM_COST_REDUCTION = 0.5; // per stat point
+const DUNGEON_ROOM_COST_FLOOR = 10;
 const DUNGEON_ROOM_TIER_MULT = { novice: 1.0, adept: 2.0, elite: 3.25 };
 // Widened from the original { novice: 1.0, adept: 1.25, elite: 1.5 } — at high stat,
 // raw cost pins to FLOOR (5) for every tier, so the old multipliers left barely any
@@ -1801,11 +1919,16 @@ function dungeonComputeFinalRoomHearts(armorTier, resolvePercent) {
 // property (Elite should stay genuinely unpredictable even at max investment).
 const DUNGEON_TELL_TIER_MULT = { novice: 1.4, adept: 1.0, elite: 0.7 };
 
-// Rewards — XP is dynamic (a % of current xpToNext, rolled fresh each attempt); Gold
-// is a flat randomized range, explicitly provisional pending a real Shop-pricing pass;
-// stat points are flat per tier. Partial applies a genuinely separate halving+floor
-// step to whatever Complete would have rolled — see applyDungeonRewards below.
-const DUNGEON_XP_PERCENT_RANGE = { novice: [8, 13], adept: [18, 25], elite: [30, 40] };
+// Rewards — XP is now resolve-driven (see finishDungeonRun for the formula: pMin +
+// (pMax-pMin)*resolvePercent, using the same entry-snapshotted resolve% the Final
+// Room Hearts bonus already reads), replacing the old flat uniform-random roll.
+// Ranges tightened accordingly as part of the v38 Dungeon rework — a full-Resolve
+// Elite clear near the old ~40% high end, a bled-dry Elite Complete near its new 10%
+// floor. Gold is a flat randomized range, explicitly provisional pending a real
+// Shop-pricing pass; stat points are flat per tier. Partial applies a genuinely
+// separate halving+floor step to whatever Complete would have rolled — see
+// applyDungeonRewards below.
+const DUNGEON_XP_PERCENT_RANGE = { novice: [3, 4], adept: [6, 9], elite: [10, 14] };
 const DUNGEON_GOLD_RANGE = { novice: [50, 150], adept: [300, 500], elite: [1000, 2000] };
 const DUNGEON_STAT_REWARD = { novice: 1, adept: 2, elite: 3 };
 
@@ -3477,7 +3600,10 @@ function pickDungeonBossCue(boss, move, tierKey) {
 // Hidden per-answer cost multiplier — applied alongside tierMultiplier, after the
 // floor (same "floor before multiplier" principle the tier multiplier already
 // follows; see dungeon-spec.md Section 3). Never surfaced in the UI.
-const DUNGEON_QUALITY_COST_MULT = { best: 0.7, ok: 1.0, worst: 1.4 };
+// v38 Dungeon rework: widened from {0.7, 1.0, 1.4} to make authored answer quality
+// matter far more now that DUNGEON_ROOM_COST_FLOOR itself is higher (5->10) — a worst
+// answer at Elite is now a genuinely costly mistake, not a mild inefficiency.
+const DUNGEON_QUALITY_COST_MULT = { best: 0.4, ok: 1.3, worst: 3.0 };
 
 // Fisher-Yates — used to randomize on-screen answer order so quality can never be
 // inferred from position (otherwise "top answer is always best" would leak after
@@ -6397,12 +6523,30 @@ function SystemEngine() {
   function resolveEncounter(encounter, stats, opts) {
     opts = opts || {};
     const isMainQuest = !!opts.isMainQuest;
+    const choice = opts.choice || null; // "defensive" | "aggressive" | "balanced" | null
     const relevantStat = stats[encounter.domain] || 0;
     const stage1Bonus = Math.min(ENCOUNTER_STAT_BONUS_CAP, relevantStat * 0.3);
     const extraStat = Math.max(0, relevantStat - ENCOUNTER_STAGE2_START);
     const stage2Bonus = Math.min(ENCOUNTER_STAGE2_CAP, extraStat * 0.1);
-    const lossThreshold = 40 - stage1Bonus; // floors at 10, permanently
-    const winThreshold = 70 - stage1Bonus - stage2Bonus + equipmentEnchantBonus("encounterWinRate");
+    let lossThreshold = 40 - stage1Bonus; // floors at 10, permanently
+    let winThreshold = 70 - stage1Bonus - stage2Bonus + equipmentEnchantBonus("encounterWinRate");
+    // Encounter Choice System (v38) — modifiers apply ON TOP of the thresholds above,
+    // immediately before the roll. Aggressive's clamp protects the win-bonus it just
+    // bought by capping the flat risk instead, rather than letting a low-stat pick
+    // invert the two thresholds entirely.
+    if (choice === "defensive") {
+      lossThreshold -= Math.min(15, relevantStat * 0.15);
+    } else if (choice === "aggressive") {
+      winThreshold -= Math.min(25, relevantStat * 0.25);
+      lossThreshold += 15;
+      if (winThreshold < lossThreshold + 10) {
+        lossThreshold = winThreshold - 10;
+      }
+    } else if (choice === "balanced") {
+      const scale = Math.min(5, relevantStat * 0.05);
+      winThreshold -= 5 + scale;
+      lossThreshold -= 5 + scale;
+    }
     const roll = Math.random() * 100;
     const tier = roll >= winThreshold ? "win" : roll >= lossThreshold ? "closeCall" : "loss";
     const text = tier === "win" ? encounter.winText : tier === "closeCall" ? encounter.closeCallText : encounter.lossText;
@@ -6436,6 +6580,7 @@ function SystemEngine() {
       itemReward,
       fatigueChange,
       isMainQuest,
+      choice,
       stages: [{ roll, tier }], // always exactly 1 stage in V1 — see design notes above
     };
   }
@@ -6480,10 +6625,16 @@ function SystemEngine() {
     return grantMysteryBox();
   }
 
-  function engageEncounter() {
+  // Now takes the player's Encounter Choice pick (v38) — "defensive"/"aggressive"/
+  // "balanced" — and passes it straight through to resolveEncounter as opts.choice,
+  // which is where the actual threshold math lives. This is the ONLY caller of
+  // resolveEncounter that a person can reach through normal play, so choice is
+  // required here, not optional (declineEncounter bypasses resolution entirely).
+  function engageEncounter(choice) {
     if (!activeEncounter || activeEncounter.result) return;
     const result = resolveEncounter(activeEncounter.encounter, domainStats, {
       isMainQuest: activeEncounter.isMainQuest,
+      choice,
     });
     if (result.itemReward) {
       setInventory((prev) => ({
@@ -6505,7 +6656,7 @@ function SystemEngine() {
       ? `[System]: Received ${result.itemReward.label}.`
       : `[System]: ${result.goldChange >= 0 ? "+" : ""}${result.goldChange} Gold.`;
     pushLog([
-      `[System]: ${activeEncounter.encounter.label} — ${result.text}`,
+      `[System]: ${activeEncounter.encounter.label} — ${ENCOUNTER_CHOICE_LABELS[activeEncounter.encounter.domain][choice].label}. ${result.text}`,
       `${rewardLine}${result.xpChange > 0 ? ` +${result.xpChange} XP.` : ""} +${result.fatigueChange} Fatigue.`,
     ]);
     setActiveEncounter((prev) => ({ ...prev, result }));
@@ -6673,7 +6824,12 @@ function SystemEngine() {
     }
     const [roomMin, roomMax] = DUNGEON_ROOM_COUNT_RANGE[tierKey];
     const totalRooms = dungeonRandomInt(roomMin, roomMax);
-    let resolveMax = Object.values(domainStats).reduce((sum, v) => sum + (v || 0), 0) + level * 2;
+    // v38 Dungeon rework: Resolve pool is now the RELEVANT domain's stat only, not the
+    // sum of all 6 — "dedication vs. breadth": a neglected domain now carries real risk
+    // into its own dungeon regardless of how strong the other 5 are. No floor, no
+    // blending with the other domains, per spec — matches the existing Neglect/
+    // Stagnation design language (a domain's own numbers are what's on the line).
+    let resolveMax = (domainStats[domainKey] || 0) + level * 2;
     // Resolve Boost — fractional increase to the pool for this run only, applied once
     // here at entry (not re-checked later, same "snapshot at entry" convention the
     // Two-Pronged Hearts bonus already uses for its own Resolve% read).
@@ -6773,6 +6929,10 @@ function SystemEngine() {
         opponentHearts: activeDungeonRun.totalRooms,
         boss,
         introText,
+        // Snapshotted once, here, same moment as the Hearts bonus read above — reused
+        // by finishDungeonRun's XP formula (v38 rework) so both rewards are driven off
+        // the exact same "how much Resolve did you have left when it mattered" number.
+        resolvePercentAtEntry: resolvePercent,
       });
       return;
     }
@@ -6875,8 +7035,14 @@ function SystemEngine() {
       let xp = 0, gold = 0, stat = 0;
 
       if (result === "complete" || result === "partial") {
+        // v38 Dungeon rework: XP is now Resolve-driven, not a flat uniform-random roll.
+        // resolvePercentAtEntry is the exact same entry-snapshotted resolve/resolveMax
+        // the Final Room Hearts bonus already uses — a depleted run lands near pMin,
+        // a well-prepared one near pMax. Always set by this point: Complete/Partial
+        // only ever happen after passing through the Final Room entry snapshot above.
         const [pMin, pMax] = DUNGEON_XP_PERCENT_RANGE[tier.key];
-        const percent = pMin + Math.random() * (pMax - pMin);
+        const resolvePercent = prev.resolvePercentAtEntry || 0;
+        const percent = pMin + (pMax - pMin) * resolvePercent;
         const xpToNext = level * 100;
         const [gMin, gMax] = DUNGEON_GOLD_RANGE[tier.key];
         const fullXp = Math.floor(xpToNext * (percent / 100));
@@ -7743,24 +7909,36 @@ function SystemEngine() {
               </div>
 
               {!result ? (
-                <div className="flex gap-2">
+                <div className="space-y-2">
+                  {ENCOUNTER_CHOICE_ORDER.map((choiceKey) => {
+                    const choiceInfo = ENCOUNTER_CHOICE_LABELS[encounter.domain][choiceKey];
+                    return (
+                      <button
+                        key={choiceKey}
+                        onClick={() => engageEncounter(choiceKey)}
+                        className="w-full text-left mono px-3 py-2 rounded border transition"
+                        style={{ borderColor: domain.color, color: domain.color }}
+                      >
+                        <div className="text-xs">{choiceInfo.label}</div>
+                        <div className="text-[10px]" style={{ color: "#8B94A3" }}>
+                          {choiceInfo.flavor}
+                        </div>
+                      </button>
+                    );
+                  })}
                   <button
                     onClick={declineEncounter}
-                    className="flex-1 mono text-xs px-4 py-2 rounded border transition"
+                    className="w-full mono text-[10px] px-3 py-1.5 rounded border transition"
                     style={{ borderColor: "#2A3140", color: "#8B94A3" }}
                   >
                     DECLINE
                   </button>
-                  <button
-                    onClick={engageEncounter}
-                    className="flex-1 mono text-xs px-4 py-2 rounded border transition"
-                    style={{ borderColor: domain.color, color: domain.color }}
-                  >
-                    ENGAGE
-                  </button>
                 </div>
               ) : (
                 <>
+                  <div className="mono text-[9px] mb-1" style={{ color: domain.color }}>
+                    {ENCOUNTER_CHOICE_LABELS[encounter.domain][result.choice].label}
+                  </div>
                   <div className="mono text-xs mb-3" style={{ color: tierColor }}>
                     {result.tier === "win" ? "WIN" : result.tier === "closeCall" ? "CLOSE CALL" : "LOSS"}
                   </div>

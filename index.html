@@ -234,7 +234,7 @@ const GENDERS = ["Male", "Female", "Non-binary"];
 // PATCH_NOTES_TEXT is the full patch-notes.md content, embedded as a read-only
 // string so it can be displayed directly in-app without a separate file fetch.
 // Keep this in sync with the real patch-notes.md file shipped alongside each build.
-const APP_VERSION = "v38 (TEMP DEBUG)";
+const APP_VERSION = "v39 (TEMP DEBUG)";
 const PATCH_NOTES_TEXT = `# The System — Patch Notes
 
 Covers all builds completed in this chat, starting from the uploaded baseline
@@ -242,6 +242,66 @@ Covers all builds completed in this chat, starting from the uploaded baseline
 corresponds to the JSX artifact number shipped at that point; \`the-system-app.html\`
 was kept in lockstep from v20 onward (v19's Quick Start was JSX-only for one turn
 before being ported back into the HTML in v20).
+
+---
+
+## v39 (TEMP DEBUG carried over — see note below)
+
+**NOTE:** the notification-toggle \`alert()\` debug instrumentation from v29 is
+still live in the code (confirmed still unresolved — pushed off intentionally
+for now), so the version string still carries the TEMP DEBUG flag.
+
+**XP Doubling (Final Values)**
+- Manual Quest 30→60, Main Quest 150→300, Daily Quest 50→100, Urgent Quest
+  75→150, Emergency Quest 150→300.
+- Encounter XP (win/closeCall) 25/10 → 60/40. Main Quest Encounter's 75/30 →
+  180/120 falls out automatically via the existing
+  \`MAIN_QUEST_ENCOUNTER_XP_MULT\` (still ×3, untouched) applied to the new
+  base numbers — no separate edit needed there.
+- Dungeon XP (the item #17 resolve-based formula) is unaffected, per spec —
+  dungeons stay separately paced.
+
+**XP Booster Split: Small (1.5x) / Large (2x), Time-Window Rework**
+- The old single-shot "doubles next XP grant" XP Booster is fully replaced
+  by two new items — XP Booster (Small, 1.5x) and XP Booster (Large, 2x) —
+  both 12-hour time-window buffs applying their multiplier to EVERY XP
+  grant during the window (quest completions, Encounter Win/Close Call,
+  anything else routed through \`grantXp\`), not single-grant doublers.
+- **Hard stacking block**: cannot activate a new booster (either tier)
+  while one is already active — no overwrite, no extend, no stack. New
+  \`activeXpBoost\` state (\`null\` or \`{ tier, multiplier, expiresAt }\`)
+  replaces the old boolean \`xpBoostActive\`; \`grantXp\` now checks
+  \`activeXpBoost.expiresAt > Date.now()\` on every call instead of consuming
+  a one-time flag.
+- New \`activateXpBooster(tier)\` — blocked if \`activeXpBoost\` is already
+  set or the chosen tier's count is 0; consumes 1, sets a fresh 12-hour
+  window.
+- **Deliberately NOT part of the item #16 universal Confirm+Amount flow**
+  — per spec, only 1 booster can ever be active regardless of how many are
+  owned, so the multi-use selector pattern doesn't apply. Given its own
+  direct-activate UI in the Inventory panel instead: separate Small/Large
+  lines, each with its own ACTIVATE button (disabled while a booster is
+  already running), plus an active-buff indicator showing tier, multiplier,
+  and time remaining (reusing the existing \`nowTick\` heartbeat +
+  \`formatCountdown\`).
+- **Migration confirmed**: the old single \`inventory.xpBoosters\` count is
+  NOT mapped to either new item on a pre-v39 save — it's just left as dead
+  data in the save blob (harmless orphan field), and players with old
+  boosters banked at deploy time lose them, no compensation logic. New
+  fields \`xpBoosterSmall\`/\`xpBoosterLarge\` default to 0 for any save that
+  predates this split.
+- **Pool weight splits** (all at the confirmed 7:3 ratio, summing to the
+  old single item's weight):
+  - \`ENCOUNTER_ITEM_POOL\`: old flat 20% xpBoosters → Small 14% / Large 6%.
+  - Mystery Box (\`rollMysteryBoxOnce\`): old flat 10% → Small 7% / Large 3%.
+  - \`MAIN_QUEST_FINANCIAL_ITEM_POOL\`: this pool derives proportionally from
+    \`ENCOUNTER_ITEM_POOL\` automatically (no code change needed there beyond
+    the base pool split itself) — **confirmed numerically** that it lands
+    exactly on the spec's flagged assumption: HV Catalyst 26.11%, Bonus
+    Stat Point 17.78%, XP Booster (Small) 12.44%, XP Booster (Large) 5.33%,
+    Hairstyle Change 13.33%, Equipment Lootbox 25% (sums to 1.0). Item #12's
+    Equipment Lootbox bump had already shipped (v34), so the "if shipped"
+    branch of the spec applied.
 
 ---
 
@@ -1339,7 +1399,7 @@ const URGENT_QUEST_WINDOW_SECONDS = 6 * 60 * 60; // 6 hours — real response wi
 const EMERGENCY_TRIGGER_CHANCE = 0.3; // per level-up check, if any domain is eligible
 const EMERGENCY_QUESTS_PER_CYCLE_CAP = 1;
 const EMERGENCY_QUEST_WINDOW_SECONDS = 24 * 60 * 60; // 24 hours — real response window
-const EMERGENCY_QUEST_XP = 150; // flat — double Urgent's 75
+const EMERGENCY_QUEST_XP = 300; // flat — double Urgent's 150 (XP doubling pass, v39)
 // Main Quest anti-spam lock: Complete stays disabled until this long after setAt.
 // Not a deadline (no failure state) — purely a "can't set then instantly finish" gate.
 const MAIN_QUEST_TIME_LOCK_MS = 48 * 60 * 60 * 1000;
@@ -1429,7 +1489,11 @@ const ENCOUNTER_CHOICE_ORDER = ["defensive", "aggressive", "balanced"];
 // previously granted zero XP. Financial Win is explicitly excluded (item-only, no XP) per
 // the queued spec; every other outcome (including Financial's own Close Call/Loss) uses
 // this table normally.
-const ENCOUNTER_XP = { win: 25, closeCall: 10, loss: 0 };
+// XP doubling pass (v39): win/closeCall 25/10 -> 60/40. Main Quest Encounter numbers
+// (currently 75/30) derive automatically via MAIN_QUEST_ENCOUNTER_XP_MULT (still ×3)
+// applied to these — 60×3=180, 40×3=120, matching the spec's target 180/120 without
+// needing to touch the multiplier itself.
+const ENCOUNTER_XP = { win: 60, closeCall: 40, loss: 0 };
 const ENCOUNTER_POOL = [
   // ---- Physical (5) ----
   {
@@ -1721,21 +1785,26 @@ const ENCOUNTER_POOL = [
 const ENCOUNTER_ITEM_POOL = [
   { field: "hvCatalysts", label: "HV Catalyst", weight: 0.35 },
   { field: "bonusStatPoints", label: "Bonus Stat Point", weight: 0.20 },
-  { field: "xpBoosters", label: "XP Booster", weight: 0.20 },
+  // XP Booster split (v39) — old flat 20% xpBoosters entry replaced by two tiers,
+  // 14%/6% (7:3 ratio), summing to the same 20% the single item used to occupy.
+  { field: "xpBoosterSmall", label: "XP Booster (Small)", weight: 0.14 },
+  { field: "xpBoosterLarge", label: "XP Booster (Large)", weight: 0.06 },
   { field: "hairstyleChanges", label: "Hairstyle Change", weight: 0.15 },
   { field: "equipmentLootbox", label: "Equipment Lootbox", weight: 0.10 },
 ];
 
-// Main Quest Encounter's own Financial-Win pool — same 5 items, Equipment Lootbox's
-// weight boosted from the base pool's 10% up to 25% (was 20% before this batch — see
-// patch notes). The +5pt bump from 20%->25% comes entirely out of HV Catalyst rather
-// than proportionally from all four remaining items, which is an intentional break
-// from this pool's originally fully-programmatic "no drift" design: HV Catalyst's
-// weight below is computed from its old proportional share (what it was at
-// boostedWeight=0.20, i.e. 0.3111) minus the flat 0.05 that moved to Equipment
-// Lootbox. Bonus Stat Point / XP Booster / Hairstyle Change still derive
-// proportionally from ENCOUNTER_ITEM_POOL exactly as before and land on the same
-// values they always did (0.1778 / 0.1778 / 0.1333) — only HV Catalyst is an override.
+// Main Quest Encounter's own Financial-Win pool — same 6 items (was 5 before the v39
+// XP Booster split), Equipment Lootbox's weight boosted from the base pool's 10% up
+// to 25% (was 20% before that batch — see patch notes). The +5pt bump from 20%->25%
+// comes entirely out of HV Catalyst rather than proportionally from all remaining
+// items, which is an intentional break from this pool's originally fully-programmatic
+// "no drift" design: HV Catalyst's weight below is computed from its old proportional
+// share (what it was at boostedWeight=0.20, i.e. 0.3111) minus the flat 0.05 that
+// moved to Equipment Lootbox. Bonus Stat Point / XP Booster (both tiers) / Hairstyle
+// Change still derive proportionally from ENCOUNTER_ITEM_POOL exactly as before —
+// confirmed numerically that the v39 split lands at the queued spec's flagged
+// assumption exactly (Small 12.44%, Large 5.33%, 7:3 ratio preserved) — only HV
+// Catalyst is a hardcoded override.
 const MAIN_QUEST_FINANCIAL_ITEM_POOL = (() => {
   const boostedWeight = 0.25;
   const others = ENCOUNTER_ITEM_POOL.filter(
@@ -3998,7 +4067,11 @@ function SystemEngine() {
     equipmentLootbox: 0,
     teleportStones: 0,
     bonusStatPoints: 0,
-    xpBoosters: 0,
+    // XP Booster split (v39) — replaces the old single "xpBoosters" count. Field names
+    // match ENCOUNTER_ITEM_POOL's "xpBoosterSmall"/"xpBoosterLarge" entries exactly,
+    // same reasoning as equipmentLootbox above.
+    xpBoosterSmall: 0,
+    xpBoosterLarge: 0,
     hvCatalysts: 0,
     hairstyleChanges: 0,
     dungeonKeys: 0, // universal key — Mystery Box drop AND Shop-purchasable (150g, capped 3/day)
@@ -4033,7 +4106,13 @@ function SystemEngine() {
   const [usageComplete, setUsageComplete] = useState(null);
   const [spendBonusDomain, setSpendBonusDomain] = useState(DOMAINS[0].key);
   const [spendCatalystDomain, setSpendCatalystDomain] = useState(DOMAINS[0].key);
-  const [xpBoostActive, setXpBoostActive] = useState(false);
+  // XP Booster — time-window buff (v39 rework, replaces the old single-shot "doubles
+  // next XP grant" item). null when inactive; { tier: "small"|"large", multiplier,
+  // expiresAt } while a booster is running. Applies its multiplier to EVERY grantXp
+  // call until expiry (quest completions, Encounter Win/Close Call, anything else that
+  // routes through grantXp), not a one-time doubler. Hard-blocked from stacking or
+  // overwriting — see activateXpBooster.
+  const [activeXpBoost, setActiveXpBoost] = useState(null);
   // Equipment — gearInventory holds every owned item (bought or quest-dropped);
   // equipment holds which one (if any) is currently equipped per slot. Only an
   // owned item's id is ever placed in equipment — never a duplicated copy — so
@@ -4387,14 +4466,15 @@ function SystemEngine() {
   }, [xp, level]);
 
   function grantXp(amount) {
-    const doubled = xpBoostActive;
-    let finalAmount = doubled ? amount * 2 : amount;
+    // v39 rework: activeXpBoost is a time-window buff (up to 12hrs), applying its
+    // multiplier to every grant during the window, not a single-grant doubler. Expiry
+    // is checked here as a safety net (also auto-cleared ambiently — see the
+    // expiry-check effect near activeXpBoost) so a grant that lands exactly as the
+    // window closes never uses a stale multiplier.
+    const boostLive = activeXpBoost && activeXpBoost.expiresAt > Date.now();
+    let finalAmount = boostLive ? Math.round(amount * activeXpBoost.multiplier) : amount;
     const xpMult = 1 + equipmentEnchantBonus("xpGain");
     finalAmount = Math.round(finalAmount * xpMult);
-    if (doubled) {
-      setXpBoostActive(false);
-      pushLog([`[System]: XP Booster consumed — doubled to +${finalAmount}.`]);
-    }
     const { xp: curXp, level: curLevel } = xpLevelRef.current;
     let total = curXp + finalAmount;
     let lvl = curLevel;
@@ -4435,11 +4515,23 @@ function SystemEngine() {
     setDomainHV((prev) => ({ ...prev, [domainKey]: (prev[domainKey] || 0) + boosted }));
   }
 
-  function activateXpBoost() {
-    if (inventory.xpBoosters <= 0 || xpBoostActive) return;
-    setInventory((prev) => ({ ...prev, xpBoosters: prev.xpBoosters - 1 }));
-    setXpBoostActive(true);
-    pushLog(["[System]: XP Booster activated — next XP grant doubled."]);
+  const XP_BOOSTER_DURATION_MS = 12 * 60 * 60 * 1000; // 12hr window, both tiers
+  const XP_BOOSTER_MULTIPLIERS = { small: 1.5, large: 2 };
+
+  // Hard-blocked from stacking, overwriting, or extending — must wait for the active
+  // window to fully expire before a new booster (either tier) can be activated. No
+  // amount-selector needed here (unlike item #16's other items) since only 1 can ever
+  // be in flight regardless of how many are owned.
+  function activateXpBooster(tier) {
+    if (activeXpBoost) return;
+    const field = tier === "small" ? "xpBoosterSmall" : "xpBoosterLarge";
+    if (inventory[field] <= 0) return;
+    const multiplier = XP_BOOSTER_MULTIPLIERS[tier];
+    setInventory((prev) => ({ ...prev, [field]: prev[field] - 1 }));
+    setActiveXpBoost({ tier, multiplier, expiresAt: Date.now() + XP_BOOSTER_DURATION_MS });
+    pushLog([
+      `[System]: XP Booster (${tier === "small" ? "Small" : "Large"}) activated — ${multiplier}x XP for 12 hours.`,
+    ]);
   }
 
   // Spends `qty` HV Catalysts as `qty` SEPARATE +2 HV grants to the chosen domain
@@ -4845,8 +4937,9 @@ function SystemEngine() {
 
   // Shared −/qty/+ stepper for the Consumable + Lootbox Usage flow — same visual as
   // the Shop's key-purchase stepper. maxQty already accounts for whatever constraint
-  // applies to that item (owned count, xpBoostActive/hairstyleEditUnlocked gating at 1,
-  // or the penaltyQueue length for Teleport Stone).
+  // applies to that item (owned count, hairstyleEditUnlocked gating at 1, or the
+  // penaltyQueue length for Teleport Stone). XP Booster isn't part of this flow at
+  // all (v39) — see its own dedicated activate UI in the Inventory panel.
   function renderUsageStepper(itemKey, maxQty) {
     const qty = getUsageQty(itemKey);
     return (
@@ -4881,7 +4974,9 @@ function SystemEngine() {
         unopenedDungeonLootboxes.length > 0 ||
         inventory.teleportStones > 0 ||
         inventory.bonusStatPoints > 0 ||
-        inventory.xpBoosters > 0 ||
+        inventory.xpBoosterSmall > 0 ||
+        inventory.xpBoosterLarge > 0 ||
+        activeXpBoost ||
         inventory.hvCatalysts > 0 ||
         inventory.dungeonKeys > 0 ||
         Object.values(inventory.domainKeys).some((n) => n > 0) ||
@@ -5016,17 +5111,42 @@ function SystemEngine() {
             </div>
           )}
 
-          {inventory.xpBoosters > 0 && (
+          {activeXpBoost && (
+            <div className="flex items-center justify-between">
+              <span className="mono text-xs text-[#3DDBD9]">
+                XP Booster ({activeXpBoost.tier === "small" ? "Small" : "Large"}) active — {activeXpBoost.multiplier}x XP
+              </span>
+              <span className="mono text-[10px] text-[#5A6272]">
+                {formatCountdown(Math.max(0, Math.round((activeXpBoost.expiresAt - nowTick) / 1000)))} left
+              </span>
+            </div>
+          )}
+
+          {inventory.xpBoosterSmall > 0 && (
             <div className="flex items-center justify-between gap-2">
               <span className="mono text-xs text-[#7EE8E6]">
-                XP Booster × {inventory.xpBoosters}
-                {xpBoostActive && (
-                  <span className="text-[#3DDBD9]"> — armed, doubles next XP grant</span>
-                )}
+                XP Booster (Small) × {inventory.xpBoosterSmall}
+                <span className="text-[#5A6272]"> — 1.5x, 12hr</span>
               </span>
               <button
-                onClick={openXpBoosterUseConfirm}
-                disabled={xpBoostActive}
+                onClick={() => activateXpBooster("small")}
+                disabled={!!activeXpBoost}
+                className="mono text-[10px] px-3 py-1 rounded border border-[#2A3140] hover:border-[#3DDBD9] transition text-[#D6DCE5] disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+              >
+                ACTIVATE
+              </button>
+            </div>
+          )}
+
+          {inventory.xpBoosterLarge > 0 && (
+            <div className="flex items-center justify-between gap-2">
+              <span className="mono text-xs text-[#7EE8E6]">
+                XP Booster (Large) × {inventory.xpBoosterLarge}
+                <span className="text-[#5A6272]"> — 2x, 12hr</span>
+              </span>
+              <button
+                onClick={() => activateXpBooster("large")}
+                disabled={!!activeXpBoost}
                 className="mono text-[10px] px-3 py-1 rounded border border-[#2A3140] hover:border-[#3DDBD9] transition text-[#D6DCE5] disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
               >
                 ACTIVATE
@@ -5095,7 +5215,10 @@ function SystemEngine() {
     if (roll < 41) return { kind: "gold", amount: 50, logLine: "Mystery Box — 50 Gold." };
     if (roll < 47) return { kind: "gold", amount: 120, logLine: "Mystery Box — 120 Gold." };
     if (roll < 57) return { kind: "inventory", field: "bonusStatPoints", logLine: "Mystery Box — Bonus Stat Point acquired." };
-    if (roll < 67) return { kind: "inventory", field: "xpBoosters", logLine: "Mystery Box — XP Booster acquired." };
+    // XP Booster split (v39) — old flat 10% (57-67) replaced by two tiers, 7%/3%
+    // (64/67 boundary), same 7:3 ratio as the Financial pools, summing to the same 10%.
+    if (roll < 64) return { kind: "inventory", field: "xpBoosterSmall", logLine: "Mystery Box — XP Booster (Small) acquired." };
+    if (roll < 67) return { kind: "inventory", field: "xpBoosterLarge", logLine: "Mystery Box — XP Booster (Large) acquired." };
     if (roll < 82) return { kind: "inventory", field: "hvCatalysts", logLine: "Mystery Box — HV Catalyst acquired." };
     if (roll < 90) return { kind: "inventory", field: "dungeonKeys", logLine: "Mystery Box — Dungeon Key acquired." };
     if (roll < 95) return { kind: "inventory", field: "hairstyleChanges", logLine: "Mystery Box — Hairstyle Change acquired." };
@@ -5251,11 +5374,14 @@ function SystemEngine() {
   // CONSUMABLE + LOOTBOX USAGE — universal Confirm/Amount flow. One generic pair of
   // modals (usageConfirm -> usageComplete) shared by every item below rather than
   // bespoke modals per item, driven by a small descriptor opened via openUsageConfirm.
-  // XP Booster and Hairstyle Change are included for a consistent Confirm step, but
-  // their maxQty is capped at 1 — both are single-flag "armed" mechanics (xpBoostActive,
-  // hairstyleEditUnlocked), not stacking counters, so "use 3" has no well-defined
-  // meaning for them the way it does for HV Catalyst or a lootbox roll. Flagged in
-  // patch notes rather than silently building a broken 3x-apply for these two.
+  // Hairstyle Change is included for a consistent Confirm step, but its maxQty is
+  // capped at 1 — it's a single-flag "armed" mechanic (hairstyleEditUnlocked), not a
+  // stacking counter, so "use 3" has no well-defined meaning the way it does for HV
+  // Catalyst or a lootbox roll. XP Booster (Small/Large) is deliberately NOT part of
+  // this generic flow at all (v39) — it explicitly doesn't need the multi-use
+  // selector/Confirm pattern per spec, since only 1 can ever be active regardless of
+  // how many are owned; it gets its own direct-activate UI instead (see
+  // activateXpBooster + the Inventory panel's XP Booster lines).
   // ============================================================================
   function usageOwnedCount(itemKey) {
     if (itemKey === "mysteryBoxes") return inventory.mysteryBoxes;
@@ -5264,7 +5390,6 @@ function SystemEngine() {
     if (itemKey === "hvCatalysts") return inventory.hvCatalysts;
     if (itemKey === "bonusStatPoints") return inventory.bonusStatPoints;
     if (itemKey === "teleportStones") return Math.min(inventory.teleportStones, penaltyQueue.length);
-    if (itemKey === "xpBoosters") return xpBoostActive ? 0 : Math.min(inventory.xpBoosters, 1);
     if (itemKey === "hairstyleChanges") return hairstyleEditUnlocked ? 0 : Math.min(inventory.hairstyleChanges, 1);
     return 0;
   }
@@ -5320,9 +5445,6 @@ function SystemEngine() {
       `${qty}x Teleportation Stone — bypasses ${qty} queued penalt${qty === 1 ? "y" : "ies"}`,
     ]);
   }
-  function openXpBoosterUseConfirm() {
-    openUsageConfirm("xpBoosters", "XP Booster", () => ["Activates — doubles the next XP grant"]);
-  }
   function openHairstyleChangeUseConfirm() {
     openUsageConfirm("hairstyleChanges", "Hairstyle Change", () => ["Unlocks the hairstyle picker"]);
   }
@@ -5356,9 +5478,6 @@ function SystemEngine() {
       const actualQty = Math.min(qty, inventory.teleportStones, penaltyQueue.length);
       useTeleportStoneBatch(qty);
       resultLines = [`${actualQty} penalt${actualQty === 1 ? "y" : "ies"} bypassed`];
-    } else if (itemKey === "xpBoosters") {
-      activateXpBoost();
-      resultLines = ["XP Booster activated — next XP grant doubled"];
     } else if (itemKey === "hairstyleChanges") {
       useHairstyleChange();
       resultLines = ["Hairstyle picker unlocked"];
@@ -5612,6 +5731,11 @@ function SystemEngine() {
             setInventory({
               dungeonKeys: 0,
               equipmentLootbox: 0,
+              // XP Booster split (v39) — old single "xpBoosters" count from a pre-v39
+              // save is NOT mapped to either new item, per the confirmed migration
+              // plan; it just sits unused in the save blob. Both new fields default 0.
+              xpBoosterSmall: 0,
+              xpBoosterLarge: 0,
               ...s.inventory,
               domainKeys: {
                 ...Object.fromEntries(DOMAINS.map((d) => [d.key, 0])),
@@ -5641,7 +5765,12 @@ function SystemEngine() {
               ...s.keyPurchasesToday,
             });
           }
-          if (s.xpBoostActive !== undefined) setXpBoostActive(s.xpBoostActive);
+          // v39: old boolean xpBoostActive from a pre-v39 save is intentionally NOT
+          // migrated — the new activeXpBoost shape (tier/multiplier/expiresAt) has no
+          // sensible mapping from a bare true/false, and per the confirmed migration
+          // plan, boosters themselves aren't carried over either. A pre-v39 save just
+          // loads with no active boost, same as a fresh save.
+          if (s.activeXpBoost !== undefined) setActiveXpBoost(s.activeXpBoost);
           if (s.unlockedEmblems) setUnlockedEmblems(s.unlockedEmblems);
           // Merge with a default eyeStyle so saves from before this field existed
           // don't break the new eye-art lookup — old saves just get the first style.
@@ -5744,7 +5873,7 @@ function SystemEngine() {
       totalCyclesCompleted,
       inventory,
       keyPurchasesToday,
-      xpBoostActive,
+      activeXpBoost,
       unlockedEmblems,
       avatar,
       avatarLocked,
@@ -5792,7 +5921,7 @@ function SystemEngine() {
     totalCyclesCompleted,
     inventory,
     keyPurchasesToday,
-    xpBoostActive,
+    activeXpBoost,
     unlockedEmblems,
     avatar,
     avatarLocked,
@@ -5849,7 +5978,8 @@ function SystemEngine() {
       equipmentLootbox: 0,
       teleportStones: 0,
       bonusStatPoints: 0,
-      xpBoosters: 0,
+      xpBoosterSmall: 0,
+      xpBoosterLarge: 0,
       hvCatalysts: 0,
       hairstyleChanges: 0,
       dungeonKeys: 0,
@@ -5862,7 +5992,7 @@ function SystemEngine() {
       universal: 0,
       ...Object.fromEntries(DOMAINS.map((d) => [d.key, 0])),
     });
-    setXpBoostActive(false);
+    setActiveXpBoost(null);
     setUnlockedEmblems({});
     setLevelUpNotification(null);
     setPendingLevelUps([]);
@@ -6361,18 +6491,18 @@ function SystemEngine() {
     setDomainQuestCount((prev) => ({ ...prev, [quest.domain]: (prev[quest.domain] || 0) + 1 }));
     setDomainStats((prev) => ({ ...prev, [quest.domain]: prev[quest.domain] + 1 }));
     setDomainReceivedPointSinceCycle((prev) => ({ ...prev, [quest.domain]: true })); // auto stat point
-    grantXp(75); // XP rebalance 2026-09-06 — Urgent bumped from 25 to 75 (Manual 30 / Main 150)
+    grantXp(150); // XP doubling pass (v39) — Urgent 75 -> 150 (Manual 60 / Main 300)
     grantHV(quest.domain, 1); // HV only now — grantHV no longer adds hidden bonus XP
     pushLog([
       `[System]: Urgent Quest resolved — ${quest.label}`,
-      "[System]: +75 XP, +1 stat point.",
+      "[System]: +150 XP, +1 stat point.",
     ]);
     maybeRollEncounter(); // non-Daily completion — small chance of an Encounter
     const gotBox = maybeGrantMysteryBox(); // same non-Daily completions, independent roll
     setQuestCompletePopup({
       type: "Urgent Quest",
       label: quest.label,
-      lines: ["+75 XP", "+1 stat point", ...(gotBox ? ["+1 Mystery Box"] : [])],
+      lines: ["+150 XP", "+1 stat point", ...(gotBox ? ["+1 Mystery Box"] : [])],
     });
   }
 
@@ -6423,16 +6553,16 @@ function SystemEngine() {
     if (!manualQuests.some((q) => q.id === quest.id)) return;
     setManualQuests((prev) => prev.filter((q) => q.id !== quest.id));
     setDomainQuestCount((prev) => ({ ...prev, [quest.domain]: (prev[quest.domain] || 0) + 1 }));
-    grantXp(30); // XP rebalance 2026-09-06 — Manual 30 / Main 150 / Urgent 75
+    grantXp(60); // XP doubling pass (v39) — Manual 30->60 / Main 150->300 / Urgent 75->150
     grantHV(quest.domain, 1); // HV only now — grantHV no longer adds hidden bonus XP
-    pushLog([`[System]: Manual Quest complete — ${quest.label}`, "[System]: +30 XP."]);
+    pushLog([`[System]: Manual Quest complete — ${quest.label}`, "[System]: +60 XP."]);
     maybeRollEncounter(); // non-Daily completion — small chance of an Encounter
     const gotBox = maybeGrantMysteryBox(); // same non-Daily completions, independent roll
     maybeGrantEquipmentDrop(); // independent equipment-drop roll, same completion types
     setQuestCompletePopup({
       type: "Manual Quest",
       label: quest.label,
-      lines: ["+30 XP", ...(gotBox ? ["+1 Mystery Box"] : [])], // "+1 HV" hidden from popup per queue — HV grant above is unaffected
+      lines: ["+60 XP", ...(gotBox ? ["+1 Mystery Box"] : [])], // "+1 HV" hidden from popup per queue — HV grant above is unaffected
     });
   }
 
@@ -6473,11 +6603,11 @@ function SystemEngine() {
     setMainQuests((prev) => ({ ...prev, [domainKey]: { ...prev[domainKey], complete: true } }));
     setDomainQuestCount((prev) => ({ ...prev, [domainKey]: (prev[domainKey] || 0) + 1 }));
     setDomainMainQuestsSinceReset((prev) => ({ ...prev, [domainKey]: (prev[domainKey] || 0) + 1 }));
-    grantXp(150); // XP rebalance 2026-09-06 — Manual 30 / Main 150 / Urgent 75
+    grantXp(300); // XP doubling pass (v39) — Manual 30->60 / Main 150->300 / Urgent 75->150
     grantHV(domainKey, 3); // HV only now — grantHV no longer adds hidden bonus XP
     pushLog([
       `[System]: Main Quest complete — ${quest.specific}`,
-      "[System]: +150 XP.",
+      "[System]: +300 XP.",
     ]);
     maybeRollMainQuestEncounter(); // dedicated higher-rate trigger — NOT maybeRollEncounter/ENCOUNTER_CHANCE
     const gotBox = maybeGrantMysteryBox(); // same non-Daily completions, independent roll
@@ -6485,7 +6615,7 @@ function SystemEngine() {
     setQuestCompletePopup({
       type: "Main Quest",
       label: quest.specific,
-      lines: ["+150 XP", ...(gotBox ? ["+1 Mystery Box"] : [])], // "+3 HV" hidden from popup per queue — HV grant above is unaffected
+      lines: ["+300 XP", ...(gotBox ? ["+1 Mystery Box"] : [])], // "+3 HV" hidden from popup per queue — HV grant above is unaffected
     });
   }
 
@@ -7404,7 +7534,7 @@ function SystemEngine() {
 
   function completeQuest() {
     setQuestComplete(true);
-    const gainedXp = 50;
+    const gainedXp = 100; // XP doubling pass (v39) — Daily 50 -> 100
 
     pushLog([
       "[System]: Daily Quest complete.",
@@ -8738,7 +8868,8 @@ function SystemEngine() {
                   {inventory.mysteryBoxes === 0 &&
                     inventory.teleportStones === 0 &&
                     inventory.bonusStatPoints === 0 &&
-                    inventory.xpBoosters === 0 &&
+                    inventory.xpBoosterSmall === 0 &&
+                    inventory.xpBoosterLarge === 0 &&
                     inventory.hvCatalysts === 0 &&
                     inventory.gold === 0 && (
                       <div className="mono text-[10px]" style={{ color: "#5A6272" }}>
@@ -8920,7 +9051,8 @@ function SystemEngine() {
                   {inventory.mysteryBoxes === 0 &&
                     inventory.teleportStones === 0 &&
                     inventory.bonusStatPoints === 0 &&
-                    inventory.xpBoosters === 0 &&
+                    inventory.xpBoosterSmall === 0 &&
+                    inventory.xpBoosterLarge === 0 &&
                     inventory.hvCatalysts === 0 &&
                     inventory.gold === 0 && (
                       <div className="mono text-[10px] relative z-10" style={{ color: "#5A6272" }}>

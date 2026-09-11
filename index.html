@@ -234,7 +234,7 @@ const GENDERS = ["Male", "Female", "Non-binary"];
 // PATCH_NOTES_TEXT is the full patch-notes.md content, embedded as a read-only
 // string so it can be displayed directly in-app without a separate file fetch.
 // Keep this in sync with the real patch-notes.md file shipped alongside each build.
-const APP_VERSION = "v40 (TEMP DEBUG)";
+const APP_VERSION = "v41 (TEMP DEBUG)";
 const PATCH_NOTES_TEXT = `# The System — Patch Notes
 
 Covers all builds completed in this chat, starting from the uploaded baseline
@@ -242,6 +242,37 @@ Covers all builds completed in this chat, starting from the uploaded baseline
 corresponds to the JSX artifact number shipped at that point; \`the-system-app.html\`
 was kept in lockstep from v20 onward (v19's Quick Start was JSX-only for one turn
 before being ported back into the HTML in v20).
+
+---
+
+## v41 (TEMP DEBUG carried over — see note below)
+
+**NOTE:** the notification-toggle \`alert()\` debug instrumentation from v29 is
+still live in the code (confirmed still unresolved — pushed off intentionally
+for now), so the version string still carries the TEMP DEBUG flag.
+
+**Bugfix: XP Booster appeared not to work on Manual Quest (and everywhere
+else)**
+- Root cause found: \`grantXp()\` was correctly applying the active XP
+  Booster's multiplier internally the whole time (v39's rework was working
+  as designed) — but it never RETURNED the actual boosted amount, so every
+  single caller was hardcoding its own pre-boost base number in the log
+  line and completion popup. The XP total and level progress really were
+  being boosted; nothing ever showed it, so the booster looked broken even
+  when it wasn't.
+- \`grantXp(amount)\` now returns the actual final amount granted (after both
+  the XP Booster multiplier and the equipment \`xpGain\` enchant).
+- Every call site updated to use the returned value for its user-facing
+  text instead of the flat base number: Manual Quest, Main Quest, Urgent
+  Quest, Emergency Quest, Daily Quest, Encounter (both the log line and the
+  result-screen's \`+X XP\` display, via a new \`result.xpGranted\` field), and
+  Dungeon (\`rewardXp\` now holds the boosted amount, which the result screen
+  already displayed dynamically — it just wasn't dynamic in the right way
+  before).
+- Daily Quest's \`completeQuest()\` additionally had its \`grantXp\` call
+  reordered to run BEFORE building the log lines (it was previously called
+  after, alongside a locally hardcoded number) — same underlying issue,
+  same fix.
 
 ---
 
@@ -4495,6 +4526,12 @@ function SystemEngine() {
     xpLevelRef.current = { xp, level };
   }, [xp, level]);
 
+  // Returns the ACTUAL amount granted (after XP Booster multiplier + equipment xpGain
+  // enchant), so callers can display the real number instead of hardcoding their base
+  // pre-boost figure — see the XP-Booster-appears-broken investigation (v41): the
+  // booster's math here was always correct, but every caller's log/popup text was a
+  // hardcoded base number that never reflected it, so the boost was invisible even
+  // when it was working. Every call site updated to use this return value instead.
   function grantXp(amount) {
     // v39 rework: activeXpBoost is a time-window buff (up to 12hrs), applying its
     // multiplier to every grant during the window, not a single-grant doubler. Expiry
@@ -4527,6 +4564,7 @@ function SystemEngine() {
       // landed, so it reads fresh state instead of stale pre-action closures.
       setPendingLevelUps((prev) => [...prev, { fromLevel: curLevel, toLevel: lvl }]);
     }
+    return finalAmount;
   }
 
   // Every HV grant also counts toward leveling — 1 HV = 1 XP, applied through the same
@@ -6521,18 +6559,18 @@ function SystemEngine() {
     setDomainQuestCount((prev) => ({ ...prev, [quest.domain]: (prev[quest.domain] || 0) + 1 }));
     setDomainStats((prev) => ({ ...prev, [quest.domain]: prev[quest.domain] + 1 }));
     setDomainReceivedPointSinceCycle((prev) => ({ ...prev, [quest.domain]: true })); // auto stat point
-    grantXp(150); // XP doubling pass (v39) — Urgent 75 -> 150 (Manual 60 / Main 300)
+    const grantedXp = grantXp(150); // XP doubling pass (v39) — Urgent 75 -> 150 (Manual 60 / Main 300)
     grantHV(quest.domain, 1); // HV only now — grantHV no longer adds hidden bonus XP
     pushLog([
       `[System]: Urgent Quest resolved — ${quest.label}`,
-      "[System]: +150 XP, +1 stat point.",
+      `[System]: +${grantedXp} XP, +1 stat point.`,
     ]);
     maybeRollEncounter(); // non-Daily completion — small chance of an Encounter
     const gotBox = maybeGrantMysteryBox(); // same non-Daily completions, independent roll
     setQuestCompletePopup({
       type: "Urgent Quest",
       label: quest.label,
-      lines: ["+150 XP", "+1 stat point", ...(gotBox ? ["+1 Mystery Box"] : [])],
+      lines: [`+${grantedXp} XP`, "+1 stat point", ...(gotBox ? ["+1 Mystery Box"] : [])],
     });
   }
 
@@ -6545,18 +6583,18 @@ function SystemEngine() {
     setDomainQuestCount((prev) => ({ ...prev, [quest.domain]: (prev[quest.domain] || 0) + 1 }));
     setDomainStats((prev) => ({ ...prev, [quest.domain]: prev[quest.domain] + 1 }));
     setDomainReceivedPointSinceCycle((prev) => ({ ...prev, [quest.domain]: true })); // auto stat point
-    grantXp(EMERGENCY_QUEST_XP);
+    const grantedXp = grantXp(EMERGENCY_QUEST_XP);
     grantHV(quest.domain, level); // HV = player level, per spec — scales with progression
     pushLog([
       `[System]: Emergency Quest resolved — ${quest.label}`,
-      `[System]: +${EMERGENCY_QUEST_XP} XP, +1 stat point.`,
+      `[System]: +${grantedXp} XP, +1 stat point.`,
     ]);
     maybeRollEncounter(); // same non-Daily completion bonuses as every other quest type
     const gotBox = maybeGrantMysteryBox(); // independent roll
     setQuestCompletePopup({
       type: "Emergency Quest",
       label: quest.label,
-      lines: [`+${EMERGENCY_QUEST_XP} XP`, "+1 stat point", ...(gotBox ? ["+1 Mystery Box"] : [])],
+      lines: [`+${grantedXp} XP`, "+1 stat point", ...(gotBox ? ["+1 Mystery Box"] : [])],
     });
   }
 
@@ -6583,16 +6621,16 @@ function SystemEngine() {
     if (!manualQuests.some((q) => q.id === quest.id)) return;
     setManualQuests((prev) => prev.filter((q) => q.id !== quest.id));
     setDomainQuestCount((prev) => ({ ...prev, [quest.domain]: (prev[quest.domain] || 0) + 1 }));
-    grantXp(60); // XP doubling pass (v39) — Manual 30->60 / Main 150->300 / Urgent 75->150
+    const grantedXp = grantXp(60); // XP doubling pass (v39) — Manual 30->60 / Main 150->300 / Urgent 75->150
     grantHV(quest.domain, 1); // HV only now — grantHV no longer adds hidden bonus XP
-    pushLog([`[System]: Manual Quest complete — ${quest.label}`, "[System]: +60 XP."]);
+    pushLog([`[System]: Manual Quest complete — ${quest.label}`, `[System]: +${grantedXp} XP.`]);
     maybeRollEncounter(); // non-Daily completion — small chance of an Encounter
     const gotBox = maybeGrantMysteryBox(); // same non-Daily completions, independent roll
     maybeGrantEquipmentDrop(); // independent equipment-drop roll, same completion types
     setQuestCompletePopup({
       type: "Manual Quest",
       label: quest.label,
-      lines: ["+60 XP", ...(gotBox ? ["+1 Mystery Box"] : [])], // "+1 HV" hidden from popup per queue — HV grant above is unaffected
+      lines: [`+${grantedXp} XP`, ...(gotBox ? ["+1 Mystery Box"] : [])], // "+1 HV" hidden from popup per queue — HV grant above is unaffected
     });
   }
 
@@ -6633,11 +6671,11 @@ function SystemEngine() {
     setMainQuests((prev) => ({ ...prev, [domainKey]: { ...prev[domainKey], complete: true } }));
     setDomainQuestCount((prev) => ({ ...prev, [domainKey]: (prev[domainKey] || 0) + 1 }));
     setDomainMainQuestsSinceReset((prev) => ({ ...prev, [domainKey]: (prev[domainKey] || 0) + 1 }));
-    grantXp(300); // XP doubling pass (v39) — Manual 30->60 / Main 150->300 / Urgent 75->150
+    const grantedXp = grantXp(300); // XP doubling pass (v39) — Manual 30->60 / Main 150->300 / Urgent 75->150
     grantHV(domainKey, 3); // HV only now — grantHV no longer adds hidden bonus XP
     pushLog([
       `[System]: Main Quest complete — ${quest.specific}`,
-      "[System]: +300 XP.",
+      `[System]: +${grantedXp} XP.`,
     ]);
     maybeRollMainQuestEncounter(); // dedicated higher-rate trigger — NOT maybeRollEncounter/ENCOUNTER_CHANCE
     const gotBox = maybeGrantMysteryBox(); // same non-Daily completions, independent roll
@@ -6645,7 +6683,7 @@ function SystemEngine() {
     setQuestCompletePopup({
       type: "Main Quest",
       label: quest.specific,
-      lines: ["+300 XP", ...(gotBox ? ["+1 Mystery Box"] : [])], // "+3 HV" hidden from popup per queue — HV grant above is unaffected
+      lines: [`+${grantedXp} XP`, ...(gotBox ? ["+1 Mystery Box"] : [])], // "+3 HV" hidden from popup per queue — HV grant above is unaffected
     });
   }
 
@@ -6807,7 +6845,7 @@ function SystemEngine() {
         setGoldEarnedTotal((prev) => prev + result.goldChange);
       }
     }
-    if (result.xpChange > 0) grantXp(result.xpChange);
+    const xpGranted = result.xpChange > 0 ? grantXp(result.xpChange) : 0;
     // Encounter losses are a forced cost, not an intentional purchase — deliberately
     // NOT counted toward goldSpentTotal, which the Big Spender emblem tracks and which
     // Shop purchases are documented as the "only source" of.
@@ -6817,9 +6855,9 @@ function SystemEngine() {
       : `[System]: ${result.goldChange >= 0 ? "+" : ""}${result.goldChange} Gold.`;
     pushLog([
       `[System]: ${activeEncounter.encounter.label} — ${ENCOUNTER_CHOICE_LABELS[activeEncounter.encounter.domain][choice].label}. ${result.text}`,
-      `${rewardLine}${result.xpChange > 0 ? ` +${result.xpChange} XP.` : ""} +${result.fatigueChange} Fatigue.`,
+      `${rewardLine}${xpGranted > 0 ? ` +${xpGranted} XP.` : ""} +${result.fatigueChange} Fatigue.`,
     ]);
-    setActiveEncounter((prev) => ({ ...prev, result }));
+    setActiveEncounter((prev) => ({ ...prev, result: { ...result, xpGranted } }));
   }
 
   function declineEncounter() {
@@ -7217,7 +7255,7 @@ function SystemEngine() {
           gold = Math.floor(fullGold * 0.5);
           stat = Math.floor(fullStat * 0.5); // Novice's +1 floors to 0 here, by design
         }
-        if (xp > 0) grantXp(xp);
+        if (xp > 0) xp = grantXp(xp); // capture the actual (possibly boosted) amount for display below
         if (gold > 0) {
           setInventory((inv) => ({ ...inv, gold: inv.gold + gold }));
           setGoldEarnedTotal((g) => g + gold);
@@ -7564,14 +7602,14 @@ function SystemEngine() {
 
   function completeQuest() {
     setQuestComplete(true);
-    const gainedXp = 100; // XP doubling pass (v39) — Daily 50 -> 100
+    const baseXp = 100; // XP doubling pass (v39) — Daily 50 -> 100
+    const grantedXp = grantXp(baseXp); // called first so the log/popup can show the real (boosted) amount
 
     pushLog([
       "[System]: Daily Quest complete.",
-      `[System]: +${gainedXp} XP, +50 Gold.`,
+      `[System]: +${grantedXp} XP, +50 Gold.`,
       "[System]: +1 Mystery Box.",
     ]);
-    grantXp(gainedXp);
     setMissCount(0);
     setCurrentStreak((prev) => prev + 1); // consecutive full passes — Dungeon's streak-gate reads this
     endCycle({ awardPoints: true }); // full pass — HV grows for all 6, +1 manual stat point banked
@@ -7580,7 +7618,7 @@ function SystemEngine() {
     setQuestCompletePopup({
       type: "Daily Quest",
       label: null,
-      lines: [`+${gainedXp} XP`, "+50 Gold", "+1 Mystery Box"],
+      lines: [`+${grantedXp} XP`, "+50 Gold", "+1 Mystery Box"],
     });
   }
 
@@ -8109,7 +8147,7 @@ function SystemEngine() {
                     {result.itemReward
                       ? `Received: ${result.itemReward.label}`
                       : `${result.goldChange >= 0 ? "+" : ""}${result.goldChange} Gold`}
-                    {result.xpChange > 0 && ` · +${result.xpChange} XP`}
+                    {result.xpGranted > 0 && ` · +${result.xpGranted} XP`}
                     {" "}· +{result.fatigueChange} Fatigue
                   </div>
                   <button

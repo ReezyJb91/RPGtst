@@ -234,7 +234,7 @@ const GENDERS = ["Male", "Female", "Non-binary"];
 // PATCH_NOTES_TEXT is the full patch-notes.md content, embedded as a read-only
 // string so it can be displayed directly in-app without a separate file fetch.
 // Keep this in sync with the real patch-notes.md file shipped alongside each build.
-const APP_VERSION = "v39 (TEMP DEBUG)";
+const APP_VERSION = "v40 (TEMP DEBUG)";
 const PATCH_NOTES_TEXT = `# The System — Patch Notes
 
 Covers all builds completed in this chat, starting from the uploaded baseline
@@ -242,6 +242,30 @@ Covers all builds completed in this chat, starting from the uploaded baseline
 corresponds to the JSX artifact number shipped at that point; \`the-system-app.html\`
 was kept in lockstep from v20 onward (v19's Quick Start was JSX-only for one turn
 before being ported back into the HTML in v20).
+
+---
+
+## v40 (TEMP DEBUG carried over — see note below)
+
+**NOTE:** the notification-toggle \`alert()\` debug instrumentation from v29 is
+still live in the code (confirmed still unresolved — pushed off intentionally
+for now), so the version string still carries the TEMP DEBUG flag.
+
+**Stat Gain Floor (Option A — eliminates false "blank" level-ups)**
+- Applied on top of \`processLevelUp\`'s existing per-level stat-increase loop
+  (the function the spec calls \`applyLevelUpStatIncreases\`, inlined here
+  rather than kept standalone — see the existing comment above the function
+  for why): \`let increase = round(hv / newLevel); if (increase === 0 && hv
+  > 0) increase = 1;\`
+- A domain that earned ANY HV this cycle is now guaranteed at least +1 on
+  level-up. A domain that earned ZERO HV (genuine neglect) is untouched —
+  still correctly shows 0, preserving the existing Neglect design intent.
+- Per spec's validation: closes the "false blank" case where \`round()\` was
+  dropping a genuinely-earned small HV amount all the way to 0, especially
+  at higher levels where the \`newLevel\` divisor grows — fully-blank
+  level-ups drop from 89.8% to 4.1% under the current doubled-XP economy
+  (10-quest/day pace, level 1–50 run). The remaining 4.1% are level-ups
+  that fire before any domain earned HV at all — correctly still blank.
 
 ---
 
@@ -4386,7 +4410,13 @@ function SystemEngine() {
       const newLevel = fromLevel + i + 1; // the level JUST reached on this iteration
       DOMAINS.forEach((d) => {
         const hv = hvSnapshot[d.key] || 0;
-        const increase = Math.round(hv / newLevel);
+        let increase = Math.round(hv / newLevel);
+        // Stat Gain Floor (v40) — a domain that earned ANY HV this cycle is guaranteed
+        // at least +1 on level-up, closing the "false blank" case where round() drops
+        // a genuinely-earned small HV amount all the way to 0 at higher levels. A
+        // domain that earned ZERO HV (real neglect) is untouched — still correctly 0,
+        // preserving the existing Neglect design intent.
+        if (increase === 0 && hv > 0) increase = 1;
         if (increase) totalGain[d.key] = (totalGain[d.key] || 0) + increase;
       });
       hvSnapshot = Object.fromEntries(DOMAINS.map((d) => [d.key, 0])); // reset after applying

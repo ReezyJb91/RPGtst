@@ -234,7 +234,7 @@ const GENDERS = ["Male", "Female", "Non-binary"];
 // PATCH_NOTES_TEXT is the full patch-notes.md content, embedded as a read-only
 // string so it can be displayed directly in-app without a separate file fetch.
 // Keep this in sync with the real patch-notes.md file shipped alongside each build.
-const APP_VERSION = "v41 (TEMP DEBUG)";
+const APP_VERSION = "v44 (TEMP DEBUG)";
 const PATCH_NOTES_TEXT = `# The System — Patch Notes
 
 Covers all builds completed in this chat, starting from the uploaded baseline
@@ -242,6 +242,196 @@ Covers all builds completed in this chat, starting from the uploaded baseline
 corresponds to the JSX artifact number shipped at that point; \`the-system-app.html\`
 was kept in lockstep from v20 onward (v19's Quick Start was JSX-only for one turn
 before being ported back into the HTML in v20).
+
+---
+
+## v44 (TEMP DEBUG carried over — see note below)
+
+**NOTE:** the notification-toggle \`alert()\` debug instrumentation from v29 is
+still live in the code (confirmed still unresolved — pushed off intentionally
+for now), so the version string still carries the TEMP DEBUG flag.
+
+**Dungeon Tell Chance Formula**
+- \`baseTell\` and the tier-multiplier step already matched the queued formula
+  exactly — only the floor clamp was missing. Added \`DUNGEON_TELL_FLOOR =
+  { novice: 20, adept: 12, elite: 3 }\` and inserted the clamp in the right
+  spot: after the tier multiplier/cap, before equipment/consumable bonuses
+  stack on top. A low-stat player now gets a guaranteed baseline reveal
+  chance per tier instead of trending toward 0.
+
+**Armor Protection Chance — Flat/+ Mechanism (closes item #22/#23's open
+follow-up)**
+- Armor's Protection Chance is a fixed per-tier lookup, not a rolled range,
+  so flat/+ is now determined by SOURCE instead of roll position: Shop-sold
+  Armor is always flat; quest-drop/Financial Encounter Armor (T1–T3) is a
+  50/50 coin flip; Dungeon Lootbox Armor at T1/T2 is always "+" (mirrors
+  the Weapon/Trinket "dungeon items beat shop equivalents" rule from item
+  #23); Dungeon Lootbox Armor at T3 is a 50/50 coin flip (no Shop
+  equivalent to force "+" against); Named/T4 never splits.
+- \`EQUIPMENT_ARMOR_PROTECTION_CHANCE\` extended to all tiers (was T3/Named
+  only): T1 3% / T2 7% / T3 15% / Named 25%. New
+  \`EQUIPMENT_ARMOR_PROTECTION_CHANCE_PLUS\`: T1+ 5% / T2+ 10% / T3+ 20%. New
+  shared \`equipmentArmorProtectionChance(item)\` helper is now the single
+  source of truth for the flat/+/Named lookup, used by both display
+  functions and the mechanic.
+- **Caught and fixed a same-name collision before it shipped**: the actual
+  per-hit proc-check function was already called \`equipmentArmorProtectionChance\`
+  (a different, component-scoped, no-argument function reading
+  \`equipment.armor\` from closure) — adding my new item-based helper under
+  the identical name would have silently shadowed it inside the component,
+  so the real mechanic would have kept reading the OLD T3/Named-only table
+  forever regardless of the new one. Renamed the proc-check function to
+  \`equippedArmorProtectionChance()\`, which now delegates to the shared
+  helper — verified no other module-level/component-level name collisions
+  exist anywhere else in the file.
+- Verified numerically: all 7 resulting values (T1 3%/T1+ 5%/T2 7%/T2+
+  10%/T3 15%/T3+ 20%/T4 25%) match the confirmed table exactly.
+- Protection Chance display (both \`equipmentCardLines\` and
+  \`equipmentItemLabel\`) now shows for every Armor tier, not just T3/Named.
+
+**Armor Hearts — T4 Fix**
+- \`DUNGEON_ARMOR_HEART_BONUS.named\`: 4 → 5, per confirmation this was the
+  old pre-boost value that never got patched when Weapon/Trinket T4 was
+  widened to 30–40%. T1/T2/T3 (+1/+2/+3) unchanged.
+
+**"+" Naming Convention**
+- The "+" marker moved from a separate tier-badge annotation onto the
+  item's displayed NAME itself, no space: "Bent Pike+", per the confirmed
+  format. New \`equipmentDisplayName(item)\` helper, used everywhere an
+  item's name is shown — \`equipmentItemLabel\` (covers Shop listing,
+  purchase/sell confirmation modals, dungeon result popup, and log lines
+  in one place) and the Gear tab's owned-item card header. \`equipmentTierBadge\`
+  simplified back to a bare tier label ("T1"/"T2"/"T3"/"Named") now that
+  the "+" lives on the name instead.
+
+---
+
+## v43 (TEMP DEBUG carried over — see note below)
+
+**NOTE:** the notification-toggle \`alert()\` debug instrumentation from v29 is
+still live in the code (confirmed still unresolved — pushed off intentionally
+for now), so the version string still carries the TEMP DEBUG flag.
+
+**Flat/+ Equipment Split — built for real this time, per confirmed mechanism**
+- Confirmed: Shop only ever sells the FLAT half of a tier's range; "+" gear
+  is drop/quest-only. Each tier's range splits at an exact midpoint into two
+  equal-width halves — no separate table, the label is just which half a
+  roll lands in.
+- \`EQUIPMENT_BONUS_RANGE\` widened to the confirmed overall bounds: T1
+  4–10% (flat 4–7% / + 7–10%), T2 9–17% (flat 9–13% / + 13–17%), T3 15–24%
+  (flat 15–19% / + 19–24%). New \`EQUIPMENT_BONUS_MIDPOINT\` constant records
+  each tier's split point.
+- New \`equipmentRollShopBonus(tier)\` — restricted to the flat half only,
+  used exclusively by \`rollShopGearStock\` (now passes \`{ shopOnly: true }\`
+  to \`equipmentCreateItem\`). Every other source (quest drop, Financial
+  Encounter Equipment Lootbox) rolls the full range via the existing
+  \`equipmentRollBonus\` and gets whichever label the roll lands in.
+- New \`item.isPlus\` boolean, set at creation in both \`equipmentCreateItem\`
+  and \`buildDungeonLootboxItem\`. New \`equipmentTierBadge(item)\` helper
+  renders "T1"/"T1+"/"T2"/"T2+"/"T3"/"T3+"/"Named" consistently — wired
+  into both places that show an item's name+tier (\`equipmentItemLabel\` and
+  the Gear tab's owned-item card header), replacing the old "(Named)-only"
+  special case. Old saves' items without \`isPlus\` degrade gracefully (badge
+  just omits the +/flat distinction, same as Armor).
+
+**Dungeon Lootbox — Gear Tier Reconciliation (item 23), Weapon/Trinket
+portion**
+- \`DUNGEON_LOOTBOX_BONUS_RANGE\` updated: T1 7–10% (always "+"), T2 13–17%
+  (always "+"), T3 15–24% (normal flat/+ split — identical range/midpoint
+  to the Shop/Quest-drop T3 range above, since T3 has no Shop equivalent to
+  differentiate against; hardcoded separately rather than referenced, to
+  avoid a declaration-order dependency), Named/T4 30–40% (was 22–30%,
+  structure unchanged — single range, no split).
+- T1/T2 no longer do a flat/+ coin flip at all — always resolve "+",
+  matching "dungeon drops are meant to beat their Shop equivalents
+  outright." T3 gains a real flat/+ split for the first time.
+- Verified numerically: drop-path split lands ~50/50 as expected, Shop
+  rolls stay strictly within the flat half, all ranges match exactly.
+
+**Armor Hearts/Protection Chance — item 23's two flagged follow-ups**
+- **Armor Hearts: confirmed already correct, no fix needed.** Traced
+  \`buildDungeonLootboxItem\` — Dungeon Lootbox armor items never set their
+  own hearts field; they read \`DUNGEON_ARMOR_HEART_BONUS[item.tier]\` at
+  display/usage time, same shared global table every other armor source
+  uses. Any future change to that table applies everywhere automatically.
+- **Discrepancy flagged**: item 23's own text lists "Current global values:
+  ... T4 +5 (was +4)" as background context, but the live table is still
+  \`{ ..., named: 4 }\` — a T4 Armor Hearts 4→5 bump apparently was decided
+  somewhere but never landed in this file. Did not change it silently;
+  flagging since it's stated as already-current when it isn't.
+- **Armor Protection Chance: still blocked, same root cause as before.**
+  The confirmed Weapon/Trinket mechanism (roll position relative to a
+  midpoint) has no direct analog for Armor — Protection Chance is a fixed
+  per-tier lookup, not a rolled continuous value, so there's nothing to
+  check "which half" against. Extending it to the full all-tier table from
+  item 22 (T1 3%/T1+ 5%/T2 7%/T2+ 10%/T3 15%/T3+ 20%/T4 25%) requires
+  deciding a genuinely different mechanism — e.g. a direct coin flip for
+  drop-sourced T1–T3 Armor, "always +" for Dungeon Lootbox T1/T2 Armor
+  (mirroring the Weapon/Trinket rule just built), Shop-sold Armor always
+  flat. That's a plausible extrapolation, not confirmed — held rather than
+  built silently, same reasoning as the original flat/+ blocker.
+
+---
+
+## v42 (TEMP DEBUG carried over — see note below)
+
+**NOTE:** the notification-toggle \`alert()\` debug instrumentation from v29 is
+still live in the code (confirmed still unresolved — pushed off intentionally
+for now), so the version string still carries the TEMP DEBUG flag.
+
+**IMPORTANT — Item 23 (Dungeon Lootbox Gear Tier Reconciliation) NOT built,
+flagging a real blocker:** both item 22's flagged Armor Protection Chance
+follow-up and item 23 in full assume a "flat/+" equipment-tier split already
+exists as working infrastructure elsewhere in the codebase (item 23 explicitly
+says to reuse "whatever function currently decides flat vs + for Shop/Quest
+drops"). Checked thoroughly (twice, once before this batch and once again
+while starting it): **no such system exists anywhere in this file.**
+\`EQUIPMENT_BONUS_RANGE\` is a single flat range per tier, with zero
+acquisition-source distinction — no \`isPlus\` flag, no split-roll function,
+nothing. Project memory has it recorded as a decided design boundary ("shop
+is baseline-only, drops roll higher"), but it was never turned into code.
+Building item 23 as specified would mean designing and building an entire
+flat/+ system from scratch as an unstated side effect of a "gear tier
+reconciliation" item — too large a call to make unilaterally. Held for
+confirmation before proceeding.
+
+**Secondary Stat Pool for Weapon/Trinket (T3+) — Replaces Flat Single-Stat
+Secondary**
+- The old always-Resolve-Cut flat T3 secondary (\`EQUIPMENT_T3_SECONDARY_REDUCTION\`,
+  a fixed 0.05/5%, never rolled, never varied) is fully replaced by a 5-type
+  pool: Resolve Cut (existing effect, now variable), Resolve Boost (NEW —
+  feeds \`resolveMax\`, distinct from Resolve Cut), Tell Chance Up (previously
+  Trinket-primary only, now also possible as any T3+ item's secondary),
+  Fatigue Reduction (NEW — first thing in the game that reduces Fatigue
+  gain), and Hearts (NEW on Weapon/Trinket — previously Armor-only).
+- One type is randomly selected per T3+ Weapon/Trinket item at creation
+  (\`rollEquipmentSecondary\`), then rolls its own magnitude within that
+  tier's range: T3 3–6% (Hearts: +1), Named/T4 6–10% (Hearts: +2).
+- **Closes a pre-existing asymmetry**: Named Weapon/Trinket previously got
+  NO secondary at all (confirmed via code review — unlike Named Armor's
+  Protection Chance). Wired into both creation paths that can produce T3+
+  gear: \`equipmentCreateItem\` (Shop/quest-drop/Financial Encounter
+  Equipment Lootbox — T3 only, since Shop never stocks T3 and this path
+  never produces Named) and \`buildDungeonLootboxItem\` (Dungeon Lootbox —
+  the only path that produces Named items, T3 and Named both).
+- Armor's Secondary is completely unchanged — still Protection Chance only,
+  never draws from this pool (Armor items never get an \`item.secondary\`
+  field at all).
+- **All 5 types wired into real mechanics**, not just data: Resolve Cut
+  into \`equipmentResolveCostReduction\`; Resolve Boost into \`startDungeonRun\`'s
+  \`resolveMax\` calc, stacking additively with the Resolve Boost consumable
+  into the same multiplier; Tell Chance Up into \`startDungeonFinalRoomRound\`'s
+  tell calc, alongside the Trinket primary and the Tell Chance Boost
+  consumable, same 100% cap; Fatigue Reduction into \`addFatigue\` itself (one
+  shared hook point, so it covers every Fatigue source — Encounters and
+  Dungeon runs alike — automatically); Hearts into the Final Room hearts
+  snapshot, alongside the Hearts Boost consumable.
+- Both gear-card display functions updated: \`equipmentCardLines\` (Gear tab's
+  multi-line card) and \`equipmentItemLabel\` (the short single-line label
+  used in Shop/log/popup contexts) — both now show the rolled type + value
+  instead of a hardcoded Resolve Cut line.
+- Spot-checked the roll distribution numerically across both tiers —
+  magnitudes land correctly within their specified ranges.
 
 ---
 
@@ -2019,7 +2209,7 @@ const DUNGEON_ROOM_TIER_MULT = { novice: 1.0, adept: 2.0, elite: 3.25 };
 //      punishment layered on top. Example: T3 gear + 80% Resolve left -> 3+3=6,
 //      +50% (3) = 9 hearts. No gear + <25% Resolve left -> 3+0+0 = 3 (old baseline).
 const DUNGEON_PLAYER_HEARTS = 3; // base, before either bonus
-const DUNGEON_ARMOR_HEART_BONUS = { none: 0, t1: 1, t2: 2, t3: 3, named: 4 }; // named added for Dungeon Lootbox
+const DUNGEON_ARMOR_HEART_BONUS = { none: 0, t1: 1, t2: 2, t3: 3, named: 5 }; // T4 fixed 4->5 (v44) — was the old pre-boost value, never patched when Weapon/Trinket T4 was widened to 30-40%
 
 // Computes total Final Room hearts at the moment of entry. resolvePercent is the
 // run's resolve/resolveMax ratio AT ENTRY (captured once, not re-checked per round —
@@ -2042,6 +2232,11 @@ function dungeonComputeFinalRoomHearts(armorTier, resolvePercent) {
 // reaches 50% no matter how high the stat climbs, a deliberate, explained-in-spec
 // property (Elite should stay genuinely unpredictable even at max investment).
 const DUNGEON_TELL_TIER_MULT = { novice: 1.4, adept: 1.0, elite: 0.7 };
+// Floor (v44, item #24) — guarantees a minimum tell reveal chance per tier even at
+// stat=0, applied AFTER the tier multiplier/cap but BEFORE equipment/consumable
+// bonuses (see startDungeonFinalRoomRound) — those still stack on top of whichever
+// is higher, the computed chance or this floor.
+const DUNGEON_TELL_FLOOR = { novice: 20, adept: 12, elite: 3 };
 
 // Rewards — XP is now resolve-driven (see finishDungeonRun for the formula: pMin +
 // (pMax-pMin)*resolvePercent, using the same entry-snapshotted resolve% the Final
@@ -2092,9 +2287,18 @@ const DUNGEON_LOOTBOX_TIER_WEIGHTS = {
     { tier: "named", weight: 0.05 },
   ],
 };
-// Weapon/Trinket primary stat roll range — slightly stronger than the Shop/Quest-drop
-// EQUIPMENT_BONUS_RANGE, since this is the "beat the dungeon itself" reward tier.
-const DUNGEON_LOOTBOX_BONUS_RANGE = { t1: [0.06, 0.10], t2: [0.11, 0.15], t3: [0.16, 0.20], named: [0.22, 0.30] };
+// Weapon/Trinket primary stat roll range (v43, item 23 — Gear Tier Reconciliation):
+// T1/T2 always resolve "+" now — dungeon drops are meant to beat their Shop
+// equivalents outright, and the Shop never sells "+" gear (see EQUIPMENT_BONUS_RANGE).
+// T3 has no Shop equivalent at all (T3 never rolls into Shop stock — see
+// SHOP_GEAR_TIER_WEIGHTS), so there's no Shop tier to differentiate against: T3 does
+// the SAME normal flat/+ split as Shop/Quest-drop T3 gear, hence the identical range/
+// midpoint — this is intentional, not a coincidence, so the values are hardcoded here
+// too rather than referenced (avoids a declaration-order dependency on
+// EQUIPMENT_BONUS_RANGE, which is defined later in the file). Named/T4 stays a single
+// range, no split — boosted from the old 22-30% to 30-40%.
+const DUNGEON_LOOTBOX_BONUS_RANGE = { t1: [0.07, 0.1], t2: [0.13, 0.17], t3: [0.15, 0.24], named: [0.3, 0.4] };
+const DUNGEON_LOOTBOX_T3_MIDPOINT = 0.19; // matches EQUIPMENT_BONUS_MIDPOINT.t3 exactly — see note above
 
 // Fixed item pool — 18 normal items (3 tiers x 3 slots x 6 dungeons) + 6 Named items
 // (1 per dungeon, Elite-only, fixed slot per dungeon rather than randomly resolved).
@@ -2175,6 +2379,20 @@ function buildDungeonLootboxItem(domainKey, tier) {
   if (slot === "weapon" || slot === "trinket") {
     const [min, max] = DUNGEON_LOOTBOX_BONUS_RANGE[tier];
     item.bonus = min + Math.random() * (max - min);
+    // Flat/+ split (v43, item 23): T1/T2 always resolve "+"; T3 does the normal
+    // split at its (shared) midpoint; Named has no split at all — isPlus stays
+    // unset, and equipmentTierBadge already treats tier==="named" as its own case
+    // regardless of isPlus.
+    if (tier === "t1" || tier === "t2") item.isPlus = true;
+    else if (tier === "t3") item.isPlus = item.bonus >= DUNGEON_LOOTBOX_T3_MIDPOINT;
+    // Secondary Stat Pool (v42) — this is the only creation path that ever produces a
+    // Named-tier item, closing the old "Named Weapon/Trinket gets no secondary" gap.
+    if (tier === "t3" || tier === "named") item.secondary = rollEquipmentSecondary(tier);
+  } else if (slot === "armor" && tier !== "named") {
+    // Armor flat/+ (v44, item #25): T1/T2 always "+" here, mirroring the
+    // Weapon/Trinket "dungeon items beat shop equivalents" rule; T3 has no Shop
+    // equivalent to beat, so it's a 50/50 coin flip like any other drop source.
+    item.isPlus = tier === "t1" || tier === "t2" ? true : Math.random() < 0.5;
   }
   return item;
 }
@@ -2287,30 +2505,95 @@ const EQUIPMENT_TIERS = ["t1", "t2", "t3"];
 const EQUIPMENT_TIER_LABEL = { t1: "T1", t2: "T2", t3: "T3" };
 
 // Randomized primary-bonus roll range per tier (locked naming conventions pass,
-// 2026-09-05). Rolled fresh per item at acquisition (purchase or drop) — this
-// replaces the old fixed EQUIPMENT_WEAPON_REDUCTION/EQUIPMENT_TRINKET_BONUS
-// tables. Applies to Weapon (Resolve-cost reduction) and Trinket (Tell Chance
-// bonus) — see the Armor note above for why hearts are excluded from the roll.
-// Epic tier intentionally absent — TBD later, blocked on epic dungeon content.
-const EQUIPMENT_BONUS_RANGE = { t1: [0.05, 0.09], t2: [0.10, 0.14], t3: [0.15, 0.20] };
+// 2026-09-05; widened for the Flat/+ split, v43). Rolled fresh per item at
+// acquisition (purchase or drop) — this replaces the old fixed
+// EQUIPMENT_WEAPON_REDUCTION/EQUIPMENT_TRINKET_BONUS tables. Applies to Weapon
+// (Resolve-cost reduction) and Trinket (Tell Chance bonus) — see the Armor note
+// above for why hearts are excluded from the roll. Epic tier intentionally absent
+// — TBD later, blocked on epic dungeon content.
+//
+// FLAT/+ SPLIT (v43) — a locked design boundary (see design-decisions): the Shop
+// only ever sells the FLAT half of a tier's range; "+" gear is drop/quest-only.
+// Each tier's full range below splits at its exact midpoint (EQUIPMENT_BONUS_MIDPOINT)
+// into two equal-width halves — no separate table, the label is just which half the
+// roll landed in. Shop rolls are restricted to the flat half only (equipmentRollShopBonus);
+// every other source (quest drop, Financial Encounter Equipment Lootbox) rolls the
+// full range via equipmentRollBonus and gets whichever label the roll lands in.
+const EQUIPMENT_BONUS_RANGE = { t1: [0.04, 0.1], t2: [0.09, 0.17], t3: [0.15, 0.24] };
+const EQUIPMENT_BONUS_MIDPOINT = { t1: 0.07, t2: 0.13, t3: 0.19 };
 function equipmentRollBonus(tier) {
   const [min, max] = EQUIPMENT_BONUS_RANGE[tier];
   return min + Math.random() * (max - min);
 }
+// Shop-only roll — restricted to the FLAT (lower) half of the tier's range, since the
+// Shop never sells "+" gear by design. Deliberately a separate function rather than a
+// parameter on equipmentRollBonus, so every call site is explicit about which rule it's
+// using.
+function equipmentRollShopBonus(tier) {
+  const [min] = EQUIPMENT_BONUS_RANGE[tier];
+  const mid = EQUIPMENT_BONUS_MIDPOINT[tier];
+  return min + Math.random() * (mid - min);
+}
 
-// T3-only secondary Resolve-cost reduction (universal, not domain-targeted, and
-// NOT itself randomized — fixed, same as before this pass). Same magnitude
-// regardless of slot (Weapon/Armor/Trinket) per the settled table.
-// ARMOR EXCEPTION (added per queue): Armor no longer uses this at all — its
-// Secondary slot is Protection Chance instead (see EQUIPMENT_ARMOR_PROTECTION_CHANCE
-// below). This constant now only ever applies to Weapon/Trinket T3 items.
-const EQUIPMENT_T3_SECONDARY_REDUCTION = 0.05;
+// SUPERSEDED (v42, item #22) — the old always-Resolve-Cut flat T3 secondary (0.05,
+// same magnitude regardless of slot) is fully replaced by the 5-type Secondary Stat
+// Pool directly below. No code references the old flat value anymore.
+
+// ============================================================================
+// SECONDARY STAT POOL (v42, item #22) — Weapon/Trinket T3 and Named/T4 ONLY. T1/T2
+// still get no Secondary at all (unchanged). Replaces the old always-Resolve-Cut
+// flat secondary above: ONE of these 5 types is randomly selected per T3+
+// Weapon/Trinket item at creation, then rolls its own magnitude within the tier's
+// range. This also closes a pre-existing asymmetry — Named Weapon/Trinket previously
+// got NO secondary at all (unlike Named Armor's Protection Chance); it now rolls
+// from this same pool. Armor's Secondary is entirely unchanged by this — still
+// Protection Chance only, never draws from this pool.
+// ============================================================================
+const EQUIPMENT_SECONDARY_TYPES = ["resolveCut", "resolveBoost", "tellChanceUp", "fatigueReduction", "hearts"];
+const EQUIPMENT_SECONDARY_LABELS = {
+  resolveCut: "Resolve Cost Reduction",
+  resolveBoost: "Resolve Boost",
+  tellChanceUp: "Tell Chance Up",
+  fatigueReduction: "Fatigue Reduction",
+  hearts: "Hearts",
+};
+// resolveCut: reduces Dungeon room Resolve cost (existing effect, now variable).
+// resolveBoost: increases resolveMax for the run (distinct from resolveCut — this
+// grows the pool itself, resolveCut shrinks what each room draws from it).
+// tellChanceUp: flat percentage points onto Final Room tell reveal chance, same
+// scale as the Trinket primary and the Tell Chance Boost consumable.
+// fatigueReduction: percentage reduction applied to Fatigue gained, any source.
+// hearts: flat bonus hearts, same scale family as Armor's primary but smaller.
+// Percentage types stored as fractions [min,max]; hearts is a flat integer (not a
+// range) — kept proportionally smaller than Armor's own Hearts primary.
+const EQUIPMENT_SECONDARY_RANGE = {
+  t3: { resolveCut: [0.03, 0.06], resolveBoost: [0.03, 0.06], tellChanceUp: [0.03, 0.06], fatigueReduction: [0.03, 0.06], hearts: 1 },
+  named: { resolveCut: [0.06, 0.1], resolveBoost: [0.06, 0.1], tellChanceUp: [0.06, 0.1], fatigueReduction: [0.06, 0.1], hearts: 2 },
+};
+function rollEquipmentSecondary(tier) {
+  const type = EQUIPMENT_SECONDARY_TYPES[Math.floor(Math.random() * EQUIPMENT_SECONDARY_TYPES.length)];
+  const range = EQUIPMENT_SECONDARY_RANGE[tier][type];
+  if (type === "hearts") return { type, value: range }; // flat integer, no roll
+  const [min, max] = range;
+  return { type, value: min + Math.random() * (max - min) };
+}
 
 // Armor's Secondary-slot effect, replacing the generic Resolve-cost reduction above
 // (Armor-only — Weapon/Trinket secondaries are unchanged). Flat values, not rolled
 // ranges. On proc, fully negates the heart loss for that hit — checked per hit in
 // the Final Room round-resolution, not a flat damage-reduction percentage.
-const EQUIPMENT_ARMOR_PROTECTION_CHANCE = { t3: 0.10, named: 0.20 };
+// v44 (item #25): extended to ALL tiers (was T3/Named only) and split flat/+, using
+// item.isPlus (set at creation — see equipmentCreateItem/buildDungeonLootboxItem for
+// the source-based flat/+ determination, since Armor has no continuous roll to check
+// a "which half" position against the way Weapon/Trinket does). Named stays a single
+// value, no split. Use equipmentArmorProtectionChance(item) below rather than
+// indexing either table directly, so the flat/+/named logic lives in one place.
+const EQUIPMENT_ARMOR_PROTECTION_CHANCE = { t1: 0.03, t2: 0.07, t3: 0.15, named: 0.25 };
+const EQUIPMENT_ARMOR_PROTECTION_CHANCE_PLUS = { t1: 0.05, t2: 0.1, t3: 0.2 };
+function equipmentArmorProtectionChance(item) {
+  if (item.tier === "named") return EQUIPMENT_ARMOR_PROTECTION_CHANCE.named;
+  return item.isPlus ? EQUIPMENT_ARMOR_PROTECTION_CHANCE_PLUS[item.tier] : EQUIPMENT_ARMOR_PROTECTION_CHANCE[item.tier];
+}
 
 // Naming conventions (locked 2026-09-05) — a few named items per slot per tier,
 // pairing a tier-appropriate material with a slot-appropriate noun. Purely
@@ -2423,11 +2706,19 @@ function equipmentNextId() {
 
 // Builds one concrete item instance. `name` is a flavor label from
 // EQUIPMENT_NAMES (or a fallback generic label for safety). Weapon/Trinket
-// items get a freshly-rolled `bonus` (fraction) from EQUIPMENT_BONUS_RANGE;
-// Armor doesn't carry a `bonus` field since its hearts value is read straight
-// from DUNGEON_ARMOR_HEART_BONUS[tier] wherever it's needed (see note above).
+// items get a freshly-rolled `bonus` (fraction) from EQUIPMENT_BONUS_RANGE, plus
+// `isPlus` (v43 Flat/+ split) recording which half of that range it landed in.
+// Armor doesn't carry a `bonus` field (its hearts value is read straight from
+// DUNGEON_ARMOR_HEART_BONUS[tier] wherever it's needed — see note above), but DOES
+// get its own `isPlus` (v44, item #25) — Armor's Protection Chance is a fixed
+// per-tier lookup, not a rolled range, so flat/+ is decided by SOURCE instead of
+// roll position: always flat for Shop, a 50/50 coin flip for quest-drop/Financial
+// Encounter Lootbox armor. Named never splits, for either slot family.
 // `enchants` is always an array (0, 1, or 2 entries) — see rollNamedEnchants
 // for the only path that ever produces 2.
+// `opts.shopOnly`: true ONLY for rollShopGearStock — restricts Weapon/Trinket rolls
+// to the flat half of the range and forces isPlus false; also forces Armor isPlus
+// false, since the Shop never sells "+" gear of any slot.
 function equipmentCreateItem(slot, tier, name, opts) {
   opts = opts || {};
   const item = {
@@ -2437,7 +2728,21 @@ function equipmentCreateItem(slot, tier, name, opts) {
     name: name || `${EQUIPMENT_TIER_LABEL[tier]} ${slot}`,
     enchants: opts.enchants || [],
   };
-  if (slot === "weapon" || slot === "trinket") item.bonus = equipmentRollBonus(tier);
+  if (slot === "weapon" || slot === "trinket") {
+    if (opts.shopOnly) {
+      item.bonus = equipmentRollShopBonus(tier);
+      item.isPlus = false;
+    } else {
+      item.bonus = equipmentRollBonus(tier);
+      item.isPlus = item.bonus >= EQUIPMENT_BONUS_MIDPOINT[tier];
+    }
+    // Secondary Stat Pool (v42) — T3 only here; Named tier never flows through this
+    // function (only buildDungeonLootboxItem creates Named items — see there for its
+    // own secondary roll).
+    if (tier === "t3") item.secondary = rollEquipmentSecondary(tier);
+  } else if (slot === "armor" && tier !== "named") {
+    item.isPlus = opts.shopOnly ? false : Math.random() < 0.5;
+  }
   return item;
 }
 
@@ -2494,7 +2799,7 @@ function rollShopGearStock(playerLevel) {
     const tier = canRollT2 ? pickWeighted(SHOP_GEAR_TIER_WEIGHTS).tier : "t1";
     const namePool = EQUIPMENT_NAMES[tier][slot];
     const name = namePool[Math.floor(Math.random() * namePool.length)];
-    stock[slot] = equipmentCreateItem(slot, tier, name);
+    stock[slot] = equipmentCreateItem(slot, tier, name, { shopOnly: true });
   });
   return stock;
 }
@@ -2516,24 +2821,47 @@ function equipmentClonePurchase(stockItem) {
   return { ...stockItem, id: equipmentNextId(), enchants: [] };
 }
 
+// Tier badge for display — "T1"/"T2"/"T3" for normal tiers, "Named" for Named-tier
+// items of any slot. No longer carries its own "+" suffix (v44, item #25) — the "+"
+// marker moved onto the item's NAME instead (see equipmentDisplayName below), per
+// the confirmed naming convention: "{ItemName}+", no space, same everywhere the
+// marker appears.
+function equipmentTierBadge(item) {
+  if (item.tier === "named") return "Named";
+  return EQUIPMENT_TIER_LABEL[item.tier] || item.tier;
+}
+
+// Naming convention (v44, item #25): "+" appended directly to the item's flavor
+// name, no space — "Bent Pike+" — for any item where isPlus is true. Named items
+// never get this (no flat/+ split at all). Use this everywhere an item's name is
+// shown instead of the bare `item.name`, so the marker is consistent across Shop
+// listing, Gear card, Inventory, and purchase/completion windows.
+function equipmentDisplayName(item) {
+  return item.isPlus ? `${item.name}+` : item.name;
+}
+
 // A short, readable label for an owned/equipped item — used in the Shop, purchase/sell
 // confirmation modals, dungeon result popup, and drop/purchase log lines (i.e. every
 // SINGLE-LINE context). The Gear tab's owned-item cards use the richer, multi-line
 // equipmentCardLines instead — see below. Shows the rolled bonus so two copies of the
 // same named item are visibly distinguishable once acquired.
 function equipmentItemLabel(item) {
-  const parts = [item.tier === "named" ? `${item.name} (Named)` : item.name];
+  const parts = [`${equipmentDisplayName(item)} (${equipmentTierBadge(item)})`];
   if (item.slot === "weapon") parts.push(`${(item.bonus * 100).toFixed(1)}% Resolve cut`);
   if (item.slot === "trinket") parts.push(`+${(item.bonus * 100).toFixed(1)}% Tell Chance`);
   if (item.slot === "armor") parts.push(`+${DUNGEON_ARMOR_HEART_BONUS[item.tier]} Hearts`);
-  if (item.slot === "armor" && (item.tier === "t3" || item.tier === "named")) {
-    parts.push(`${Math.round(EQUIPMENT_ARMOR_PROTECTION_CHANCE[item.tier] * 100)}% Protection`);
-  } else if (item.slot !== "armor" && item.tier === "t3") {
-    // Weapon/Trinket secondary is UNCHANGED by the Protection Chance change (Armor-only)
-    // — still t3-only, per "Weapon and Trinket secondaries are unaffected by this change."
-    // Named Weapon/Trinket therefore has no secondary line at all — an asymmetry versus
-    // Named Armor getting Protection Chance, but that's what "unaffected" specified.
-    parts.push(`+${Math.round(EQUIPMENT_T3_SECONDARY_REDUCTION * 100)}% Resolve cut (2nd)`);
+  if (item.slot === "armor") {
+    // v44 (item #25): now every tier, not just T3/Named — see EQUIPMENT_ARMOR_PROTECTION_CHANCE.
+    parts.push(`${Math.round(equipmentArmorProtectionChance(item) * 100)}% Protection`);
+  } else if (item.secondary) {
+    // Secondary Stat Pool (v42) — replaces the old always-Resolve-Cut hardcoded line.
+    // Named Weapon/Trinket now gets a secondary too (closes the old asymmetry vs.
+    // Named Armor's Protection Chance — see equipmentCardLines for the same fix).
+    if (item.secondary.type === "hearts") {
+      parts.push(`+${item.secondary.value} Hearts (2nd)`);
+    } else {
+      parts.push(`${(item.secondary.value * 100).toFixed(1)}% ${EQUIPMENT_SECONDARY_LABELS[item.secondary.type]} (2nd)`);
+    }
   }
   (item.enchants || []).forEach((ench) => {
     const names = { encounterWinRate: "Win Rate", mysteryBoxRate: "Box Rate", xpGain: "XP Gain", hvGain: "HV Gain" };
@@ -2554,10 +2882,16 @@ function equipmentCardLines(item) {
   else if (item.slot === "trinket") lines.push(`Primary: +${(item.bonus * 100).toFixed(1)}% Tell Chance`);
   else lines.push(`Primary: +${DUNGEON_ARMOR_HEART_BONUS[item.tier]} Hearts`);
 
-  if (item.slot === "armor" && (item.tier === "t3" || item.tier === "named")) {
-    lines.push(`Secondary: ${Math.round(EQUIPMENT_ARMOR_PROTECTION_CHANCE[item.tier] * 100)}% Protection Chance`);
-  } else if (item.slot !== "armor" && item.tier === "t3") {
-    lines.push(`Secondary: +${Math.round(EQUIPMENT_T3_SECONDARY_REDUCTION * 100)}% Resolve Cost Reduction`);
+  if (item.slot === "armor") {
+    // v44 (item #25): now every tier, not just T3/Named — see EQUIPMENT_ARMOR_PROTECTION_CHANCE.
+    lines.push(`Secondary: ${Math.round(equipmentArmorProtectionChance(item) * 100)}% Protection Chance`);
+  } else if (item.secondary) {
+    // Secondary Stat Pool (v42) — replaces the old always-Resolve-Cut hardcoded line.
+    if (item.secondary.type === "hearts") {
+      lines.push(`Secondary: +${item.secondary.value} Hearts`);
+    } else {
+      lines.push(`Secondary: ${(item.secondary.value * 100).toFixed(1)}% ${EQUIPMENT_SECONDARY_LABELS[item.secondary.type]}`);
+    }
   }
 
   const enchantNames = { encounterWinRate: "Encounter Win Rate", mysteryBoxRate: "Mystery Box Rate", xpGain: "XP Gain", hvGain: "HV Gain" };
@@ -4950,7 +5284,7 @@ function SystemEngine() {
                               className="mono text-[9px] mb-1"
                               style={{ color: isEquipped ? "#3DDBD9" : tooLow ? "#5A6272" : "#D6DCE5" }}
                             >
-                              {item.tier === "named" ? `${item.name} (Named)` : item.name}
+                              {equipmentDisplayName(item)} ({equipmentTierBadge(item)})
                             </div>
                             {equipmentCardLines(item).map((line, i) => (
                               <div key={i} className="mono text-[9px]" style={{ color: "#8B94A3" }}>
@@ -5565,32 +5899,85 @@ function SystemEngine() {
   // "which slot has what" logic at every call site.
   // ============================================================================
 
-  // Sum of every equipped item's Resolve-cost reduction — Weapon's primary (now a
-  // randomized roll, not a fixed table lookup) plus any T3 Weapon/Trinket's fixed
-  // secondary. Universal: applies in every Dungeon regardless of domain. Multiple
-  // matches stack additively (different slots contributing is intentional — that's
-  // separate pieces of gear, not the same slot stacking with itself).
-  // ARMOR EXCLUDED from the T3-secondary line here (per Armor Protection Chance
-  // change) — Armor's Secondary is a per-hit heart-loss negation now, handled
-  // separately in the Final Room round resolution, not a Resolve-cost reduction.
+  // Sum of every equipped item's Resolve-cost reduction — Weapon's primary (a
+  // randomized roll) plus any T3+ Weapon/Trinket rolling resolveCut as its Secondary
+  // (v42 Secondary Stat Pool — was a guaranteed flat T3 value before, now one of 5
+  // possible types, so this only contributes when that's the type actually rolled).
+  // Multiple matches stack additively (different slots contributing is intentional).
+  // Armor is naturally excluded — it never gets an `item.secondary` field at all,
+  // its Secondary slot is Protection Chance via a completely separate field/path.
   function equipmentResolveCostReduction() {
     let total = 0;
     EQUIPMENT_SLOTS.forEach((slot) => {
       const item = equipment[slot];
       if (!item) return;
       if (slot === "weapon") total += item.bonus;
-      if (item.tier === "t3" && slot !== "armor") total += EQUIPMENT_T3_SECONDARY_REDUCTION;
+      if (item.secondary && item.secondary.type === "resolveCut") total += item.secondary.value;
     });
     return Math.min(0.9, total); // safety ceiling — never let stacked gear zero out cost
   }
 
-  // Equipped Armor's Protection Chance (T3/Named only — T1/T2 Armor has none). Checked
-  // PER HIT at the moment a Final Room round would otherwise cost a heart; on proc,
-  // fully negates that heart loss for the hit. Returns 0 for T1/T2/no-armor.
-  function equipmentArmorProtectionChance() {
+  // Secondary Stat Pool (v42) — sums any equipped Weapon/Trinket's resolveBoost
+  // secondary. Fractional increase, applied at Dungeon entry alongside the Resolve
+  // Boost consumable (both stack additively into the same multiplier — see
+  // startDungeonRun).
+  function equipmentSecondaryResolveBoost() {
+    let total = 0;
+    EQUIPMENT_SLOTS.forEach((slot) => {
+      const item = equipment[slot];
+      if (item && item.secondary && item.secondary.type === "resolveBoost") total += item.secondary.value;
+    });
+    return total;
+  }
+
+  // Secondary Stat Pool (v42) — sums any equipped Weapon/Trinket's tellChanceUp
+  // secondary, converted to the same 0-100 percentage-point scale the Trinket
+  // primary and the Tell Chance Boost consumable already use.
+  function equipmentSecondaryTellChanceBonus() {
+    let total = 0;
+    EQUIPMENT_SLOTS.forEach((slot) => {
+      const item = equipment[slot];
+      if (item && item.secondary && item.secondary.type === "tellChanceUp") total += item.secondary.value * 100;
+    });
+    return total;
+  }
+
+  // Secondary Stat Pool (v42) — sums any equipped Weapon/Trinket's fatigueReduction
+  // secondary. Applied as a percentage reduction in addFatigue, so it covers every
+  // Fatigue source (Encounters and Dungeon runs alike) from one hook point.
+  function equipmentFatigueReduction() {
+    let total = 0;
+    EQUIPMENT_SLOTS.forEach((slot) => {
+      const item = equipment[slot];
+      if (item && item.secondary && item.secondary.type === "fatigueReduction") total += item.secondary.value;
+    });
+    return Math.min(0.9, total); // same safety ceiling convention as Resolve Cost Reduction
+  }
+
+  // Secondary Stat Pool (v42) — sums any equipped Weapon/Trinket's hearts secondary.
+  // Flat bonus, added on top of the Two-Pronged Final Room total alongside the Hearts
+  // Boost consumable (see continueAfterDungeonRoom).
+  function equipmentSecondaryHeartsBonus() {
+    let total = 0;
+    EQUIPMENT_SLOTS.forEach((slot) => {
+      const item = equipment[slot];
+      if (item && item.secondary && item.secondary.type === "hearts") total += item.secondary.value;
+    });
+    return total;
+  }
+
+  // Equipped Armor's Protection Chance — checked PER HIT at the moment a Final Room
+  // round would otherwise cost a heart; on proc, fully negates that heart loss for
+  // the hit. v44 (item #25): now covers every tier (was T3/Named only), delegating
+  // to the shared equipmentArmorProtectionChance(item) helper for the actual flat/+/
+  // named lookup, so this stays the single source of truth for both the display
+  // functions and the mechanic. Renamed from the old bare
+  // `equipmentArmorProtectionChance()` to avoid colliding with that shared helper's
+  // name — this one is the "equipped" reader, that one is the "given an item" lookup.
+  function equippedArmorProtectionChance() {
     const item = equipment.armor;
     if (!item) return 0;
-    return EQUIPMENT_ARMOR_PROTECTION_CHANCE[item.tier] || 0;
+    return equipmentArmorProtectionChance(item);
   }
 
   // Equipped Trinket's flat Tell Chance bonus — its rolled primary effect, NOT the
@@ -6697,9 +7084,13 @@ function SystemEngine() {
   // Shared fatigue-add helper — collapses the derived currentFatigue back into a
   // concrete snapshot at the moment of change, so decay continues correctly from
   // *this* point forward rather than from whenever it was last touched. Used by
-  // Encounters below and by the Debug tab's manual test buttons.
+  // Encounters below and by the Debug tab's manual test buttons. v42: a single hook
+  // point means the Secondary Stat Pool's fatigueReduction covers every Fatigue
+  // source (Encounters and Dungeon runs alike) automatically, without touching each
+  // call site individually.
   function addFatigue(amount) {
-    setFatigue(Math.min(100, currentFatigue + amount));
+    const reduced = Math.round(amount * (1 - equipmentFatigueReduction()));
+    setFatigue(Math.min(100, currentFatigue + reduced));
     setFatigueUpdatedAt(nowTick);
   }
 
@@ -7030,10 +7421,14 @@ function SystemEngine() {
     let resolveMax = (domainStats[domainKey] || 0) + level * 2;
     // Resolve Boost — fractional increase to the pool for this run only, applied once
     // here at entry (not re-checked later, same "snapshot at entry" convention the
-    // Two-Pronged Hearts bonus already uses for its own Resolve% read).
+    // Two-Pronged Hearts bonus already uses for its own Resolve% read). v42: equipped
+    // gear's Secondary Stat Pool resolveBoost stacks additively into the same
+    // multiplier alongside the Resolve Boost consumable.
     const activeBoosts = boosts || { tellChance: null, resolve: null, hearts: null, dropRate: null };
-    if (activeBoosts.resolve) {
-      resolveMax = Math.round(resolveMax * (1 + CONSUMABLE_BOOST_EFFECTS.resolve[activeBoosts.resolve]));
+    const consumableResolveBoost = activeBoosts.resolve ? CONSUMABLE_BOOST_EFFECTS.resolve[activeBoosts.resolve] : 0;
+    const totalResolveBoost = consumableResolveBoost + equipmentSecondaryResolveBoost();
+    if (totalResolveBoost > 0) {
+      resolveMax = Math.round(resolveMax * (1 + totalResolveBoost));
     }
     const firstRoom = generateDungeonRoom(domainKey);
     setActiveDungeonRun({
@@ -7109,12 +7504,13 @@ function SystemEngine() {
       // Resolve% are both read at this exact moment, per the Two-Pronged Bonus System.
       const armorTier = equipment.armor ? equipment.armor.tier : "none";
       const resolvePercent = activeDungeonRun.resolveMax > 0 ? activeDungeonRun.resolve / activeDungeonRun.resolveMax : 0;
-      // Hearts Boost consumable (if applied to this run) adds flat bonus hearts on top
-      // of the existing Two-Pronged total — additive, not folded into that formula.
+      // Hearts Boost consumable (if applied to this run) AND any equipped gear's
+      // Secondary Stat Pool hearts (v42) both add flat bonus hearts on top of the
+      // existing Two-Pronged total — additive, not folded into that formula.
       const heartsBoostBonus =
-        activeDungeonRun.boosts && activeDungeonRun.boosts.hearts
+        (activeDungeonRun.boosts && activeDungeonRun.boosts.hearts
           ? CONSUMABLE_BOOST_EFFECTS.hearts[activeDungeonRun.boosts.hearts]
-          : 0;
+          : 0) + equipmentSecondaryHeartsBonus();
       const totalHearts = dungeonComputeFinalRoomHearts(armorTier, resolvePercent) + heartsBoostBonus;
       // Boss intro is now its own screen (phase: "finalRoomIntro") with a Start Battle
       // button, rather than sharing the first Attack Select screen — see boss intro
@@ -7159,14 +7555,22 @@ function SystemEngine() {
     const stat = domainStats[baseState.domainKey] || 0;
     const baseTell = Math.min(30, stat * 0.3) + Math.min(20, Math.max(0, stat - 100) * 0.1);
     let tellChance = Math.min(50, baseTell * DUNGEON_TELL_TIER_MULT[baseState.tier.key]);
-    // Trinket's flat bonus AND a Tell Chance Boost consumable (if applied to this run)
-    // are both added AFTER the tier cap/multiplier above — the only kinds of bonus that
-    // can push past Elite's permanent 35% ceiling, per design.
+    // Floor (v44, item #24) — applied here, after the tier multiplier/cap and before
+    // any equipment/consumable bonuses, so a low-stat player still gets a guaranteed
+    // baseline reveal chance per tier rather than trending toward 0.
+    tellChance = Math.max(DUNGEON_TELL_FLOOR[baseState.tier.key], tellChance);
+    // Trinket's flat bonus, any equipped gear's Secondary Stat Pool tellChanceUp
+    // (v42), AND a Tell Chance Boost consumable (if applied to this run) are all
+    // added AFTER the tier cap/multiplier above — the only kinds of bonus that can
+    // push past Elite's permanent 35% ceiling, per design.
     const consumableTellBonus =
       baseState.boosts && baseState.boosts.tellChance
         ? CONSUMABLE_BOOST_EFFECTS.tellChance[baseState.boosts.tellChance]
         : 0;
-    tellChance = Math.min(100, tellChance + equipmentTellChanceBonus() + consumableTellBonus);
+    tellChance = Math.min(
+      100,
+      tellChance + equipmentTellChanceBonus() + equipmentSecondaryTellChanceBonus() + consumableTellBonus
+    );
     const tellTriggered = Math.random() * 100 < tellChance;
     const tellCue = tellTriggered ? pickDungeonBossCue(baseState.boss, opponentMove, baseState.tier.key) : null;
     setActiveDungeonRun({
@@ -7195,7 +7599,7 @@ function SystemEngine() {
     // Armor Protection Chance — checked PER HIT, only relevant on an actual loss.
     // On proc, fully negates the heart loss for this hit; the round still records as
     // a "lose" for tell/cue purposes, only the heart cost itself is negated.
-    const protectionProcced = outcome === "lose" && Math.random() < equipmentArmorProtectionChance();
+    const protectionProcced = outcome === "lose" && Math.random() < equippedArmorProtectionChance();
     const newPlayerHearts =
       outcome === "lose" && !protectionProcced ? activeDungeonRun.playerHearts - 1 : activeDungeonRun.playerHearts;
     const newOpponentHearts = outcome === "win" ? activeDungeonRun.opponentHearts - 1 : activeDungeonRun.opponentHearts;
